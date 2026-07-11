@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - ios-app
+    tags:
+      - "ios-v*"
   pull_request:
     branches:
       - ios-app
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ios-build-${{ github.ref }}
@@ -67,6 +69,7 @@ jobs:
             cd build/artifacts
             zip -qry GmailReaderIOS-unsigned.ipa Payload
             ditto -c -k --sequesterRsrc --keepParent "Payload/$(basename "$APP_PATH")" GmailReaderIOS-unsigned-app.zip
+            shasum -a 256 GmailReaderIOS-unsigned.ipa GmailReaderIOS-unsigned-app.zip > SHA256SUMS.txt
           )
 
           plutil -p "$APP_PATH/Info.plist"
@@ -78,6 +81,21 @@ jobs:
           path: |
             build/artifacts/GmailReaderIOS-unsigned.ipa
             build/artifacts/GmailReaderIOS-unsigned-app.zip
+            build/artifacts/SHA256SUMS.txt
             build/xcodebuild.log
           if-no-files-found: error
           retention-days: 14
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/ios-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/artifacts/GmailReaderIOS-unsigned.ipa \
+            build/artifacts/GmailReaderIOS-unsigned-app.zip \
+            build/artifacts/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Gmail Reader iOS ${GITHUB_REF_NAME#ios-v} (Unsigned)" \
+            --generate-notes \
+            --notes "Release 配置编译产物。此版本未使用 Apple Developer 证书签名，适用于构建验证、重签名或后续发布流程，不能直接安装到普通 iPhone。"
