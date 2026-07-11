@@ -204,6 +204,10 @@ final class MailCoreService {
         session.password = credentials.password
         session.connectionType = .TLS
         session.isCheckCertificateEnabled = true
+        // MailCore2 默认会在 iOS 上启用 VoIP socket。这个旧的预编译框架
+        // 在部分新版 iOS 真机上开始 IMAP 操作时会直接崩溃。普通邮件
+        // 客户端不需要 VoIP 能力，必须在首次连接前明确关闭。
+        session.isVoIPEnabled = false
         session.timeout = 30
         session.maximumConnections = 4
         session.allowsFolderConcurrentAccessEnabled = true
