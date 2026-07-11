@@ -13,6 +13,8 @@ from .config import Settings
 from .message import EmailRecord, parse_email
 from .proxy import ProxyIMAPClient, ProxySMTPSSL
 
+_FULL_MESSAGE_BATCH_SIZE = 5
+
 
 class GmailReader:
     def __init__(self, settings: Settings) -> None:
@@ -26,26 +28,38 @@ class GmailReader:
             "ssl": True,
             "timeout": 30,
         }
-        if self.settings.proxy:
-            client = ProxyIMAPClient(
-                self.settings.host,
-                proxy=self.settings.proxy,
-                **options,
-            )
-        else:
-            client = IMAPClient(self.settings.host, **options)
-        client.login(self.settings.address, self.settings.app_password)
-        self.client = client
+        client: IMAPClient | None = None
+        try:
+            if self.settings.proxy:
+                client = ProxyIMAPClient(
+                    self.settings.host,
+                    proxy=self.settings.proxy,
+                    **options,
+                )
+            else:
+                client = IMAPClient(self.settings.host, **options)
+            client.login(self.settings.address, self.settings.app_password)
+            self.client = client
+        except BaseException:
+            if client is not None:
+                try:
+                    client.shutdown()
+                except (IMAPClientError, OSError):
+                    pass
+            raise
 
     def close(self) -> None:
-        if self.client is None:
+        client = self.client
+        self.client = None
+        if client is None:
             return
         try:
-            self.client.logout()
+            client.logout()
         except (IMAPClientError, OSError):
-            pass
-        finally:
-            self.client = None
+            try:
+                client.shutdown()
+            except (IMAPClientError, OSError):
+                pass
 
     def __enter__(self) -> "GmailReader":
         self.connect()
@@ -235,19 +249,21 @@ class GmailReader:
         if not uid_list:
             return []
 
-        fetched = client.fetch(uid_list, [b"RFC822", b"FLAGS"])
         records: list[EmailRecord] = []
-        for uid in sorted(fetched):
-            item = fetched[uid]
-            raw = item.get(b"RFC822")
-            if not isinstance(raw, bytes):
-                continue
-            raw_flags = item.get(b"FLAGS", ())
-            flags = tuple(
-                flag.decode(errors="replace") if isinstance(flag, bytes) else str(flag)
-                for flag in raw_flags
-            )
-            records.append(parse_email(int(uid), raw, flags))
+        for offset in range(0, len(uid_list), _FULL_MESSAGE_BATCH_SIZE):
+            batch = uid_list[offset : offset + _FULL_MESSAGE_BATCH_SIZE]
+            fetched = client.fetch(batch, [b"RFC822", b"FLAGS"])
+            for uid in sorted(fetched):
+                item = fetched[uid]
+                raw = item.get(b"RFC822")
+                if not isinstance(raw, bytes):
+                    continue
+                raw_flags = item.get(b"FLAGS", ())
+                flags = tuple(
+                    flag.decode(errors="replace") if isinstance(flag, bytes) else str(flag)
+                    for flag in raw_flags
+                )
+                records.append(parse_email(int(uid), raw, flags))
         return records
 
     def _fetch_summaries(self, uids: Iterable[int] | str) -> list[EmailRecord]:

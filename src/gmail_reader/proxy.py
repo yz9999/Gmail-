@@ -35,8 +35,12 @@ def create_proxy_socket(
     )
     if timeout is not None:
         sock.settimeout(timeout)
-    sock.connect((destination_host, destination_port))
-    return sock
+    try:
+        sock.connect((destination_host, destination_port))
+        return sock
+    except BaseException:
+        sock.close()
+        raise
 
 
 class _ProxyIMAP4TLS(tls.IMAP4_TLS):
@@ -53,7 +57,11 @@ class _ProxyIMAP4TLS(tls.IMAP4_TLS):
 
     def _create_socket(self, timeout: float | None) -> socket.socket:
         sock = create_proxy_socket(self.proxy, self.host, self.port, timeout)
-        return tls.wrap_socket(sock, self.ssl_context, self.host)
+        try:
+            return tls.wrap_socket(sock, self.ssl_context, self.host)
+        except BaseException:
+            sock.close()
+            raise
 
 
 class ProxyIMAPClient(IMAPClient):
@@ -79,4 +87,8 @@ class ProxySMTPSSL(smtplib.SMTP_SSL):
 
     def _get_socket(self, host: str, port: int, timeout: float) -> socket.socket:
         sock = create_proxy_socket(self.proxy, host, port, timeout)
-        return self.context.wrap_socket(sock, server_hostname=host)
+        try:
+            return self.context.wrap_socket(sock, server_hostname=host)
+        except BaseException:
+            sock.close()
+            raise

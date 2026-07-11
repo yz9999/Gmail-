@@ -19,8 +19,19 @@ def create_app() -> Flask:
     load_dotenv()
     app = Flask(__name__)
     app.json.ensure_ascii = False
+    app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+    app.config["TRUSTED_HOSTS"] = ["localhost", "127.0.0.1", "::1"]
     account_store = AccountStore()
     connection_pool = GmailConnectionPool(account_store)
+
+    @app.after_request
+    def security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        if request.path == "/" or request.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.get("/")
     def index():
@@ -33,7 +44,7 @@ def create_app() -> Flask:
 
     @app.post("/api/accounts")
     def add_account():
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json() or {}
         name = str(payload.get("name", ""))
         address = str(payload.get("address", ""))
         app_password = str(payload.get("app_password", ""))
@@ -46,8 +57,8 @@ def create_app() -> Flask:
 
     @app.delete("/api/accounts/<account_id>")
     def delete_account(account_id: str):
-        connection_pool.close(account_id)
         account_store.delete(account_id)
+        connection_pool.close(account_id)
         return jsonify({"ok": True})
 
     @app.get("/api/account")
@@ -89,7 +100,7 @@ def create_app() -> Flask:
 
     @app.post("/api/messages/<int:uid>/flags")
     def flags(uid: int):
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json() or {}
         view = str(payload.get("view", "inbox"))
         action = str(payload.get("action", ""))
         connection_pool.execute(
@@ -100,7 +111,7 @@ def create_app() -> Flask:
 
     @app.post("/api/messages/mark-all-read")
     def mark_all_read():
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json() or {}
         view = str(payload.get("view", "inbox"))
         count = connection_pool.execute(
             str(payload.get("account", "")) or None,
@@ -110,7 +121,7 @@ def create_app() -> Flask:
 
     @app.post("/api/send")
     def send():
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json() or {}
         raw_to = str(payload.get("to", ""))
         recipients = [address for _name, address in getaddresses([raw_to]) if address]
         subject = str(payload.get("subject", "")).strip()
@@ -121,10 +132,8 @@ def create_app() -> Flask:
         if len(subject) > 998:
             return jsonify({"error": "邮件主题过长"}), 400
 
-        connection_pool.execute(
-            str(payload.get("account", "")) or None,
-            lambda reader: reader.send_message(recipients, subject, body),
-        )
+        settings = account_store.settings(str(payload.get("account", "")) or None)
+        GmailReader(settings).send_message(recipients, subject, body)
         return jsonify({"ok": True})
 
     @app.errorhandler(ConfigurationError)

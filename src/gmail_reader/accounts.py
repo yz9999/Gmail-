@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,25 +38,28 @@ class AccountStore:
         load_dotenv()
         configured = path or os.getenv("GMAIL_ACCOUNTS_FILE", "accounts.json")
         self.path = Path(configured).expanduser()
+        self._lock = threading.RLock()
 
     def list_accounts(self) -> list[Account]:
-        accounts: list[Account] = []
-        env_account = self._environment_account()
-        if env_account:
-            accounts.append(env_account)
-        accounts.extend(self._file_accounts())
-        return accounts
+        with self._lock:
+            accounts: list[Account] = []
+            env_account = self._environment_account()
+            if env_account:
+                accounts.append(env_account)
+            accounts.extend(self._file_accounts())
+            return accounts
 
     def get(self, account_id: str | None) -> Account:
-        accounts = self.list_accounts()
-        if not accounts:
-            raise ConfigurationError("尚未配置 Gmail 账号，请先添加账号")
-        if not account_id:
-            return accounts[0]
-        for account in accounts:
-            if account.id == account_id:
-                return account
-        raise ConfigurationError("所选 Gmail 账号不存在，请重新选择")
+        with self._lock:
+            accounts = self.list_accounts()
+            if not accounts:
+                raise ConfigurationError("尚未配置 Gmail 账号，请先添加账号")
+            if not account_id:
+                return accounts[0]
+            for account in accounts:
+                if account.id == account_id:
+                    return account
+            raise ConfigurationError("所选 Gmail 账号不存在，请重新选择")
 
     def settings(self, account_id: str | None) -> Settings:
         account = self.get(account_id)
@@ -66,28 +70,30 @@ class AccountStore:
         password = "".join(app_password.split())
         Settings.from_credentials(address, password)
 
-        if any(item.address.lower() == address for item in self.list_accounts()):
-            raise ConfigurationError("这个 Gmail 账号已经存在")
+        with self._lock:
+            if any(item.address.lower() == address for item in self.list_accounts()):
+                raise ConfigurationError("这个 Gmail 账号已经存在")
 
-        account = Account(
-            id=uuid.uuid4().hex,
-            name=name.strip() or address.split("@", 1)[0],
-            address=address,
-            app_password=password,
-        )
-        accounts = self._file_accounts()
-        accounts.append(account)
-        self._write(accounts)
-        return account
+            account = Account(
+                id=uuid.uuid4().hex,
+                name=name.strip() or address.split("@", 1)[0],
+                address=address,
+                app_password=password,
+            )
+            accounts = self._file_accounts()
+            accounts.append(account)
+            self._write(accounts)
+            return account
 
     def delete(self, account_id: str) -> None:
         if account_id == self.ENV_ACCOUNT_ID:
             raise ConfigurationError(".env 默认账号不能在网页删除")
-        accounts = self._file_accounts()
-        remaining = [item for item in accounts if item.id != account_id]
-        if len(remaining) == len(accounts):
-            raise ConfigurationError("账号不存在")
-        self._write(remaining)
+        with self._lock:
+            accounts = self._file_accounts()
+            remaining = [item for item in accounts if item.id != account_id]
+            if len(remaining) == len(accounts):
+                raise ConfigurationError("账号不存在")
+            self._write(remaining)
 
     def _environment_account(self) -> Account | None:
         address = os.getenv("GMAIL_ADDRESS", "").strip()
@@ -142,8 +148,8 @@ class AccountStore:
                 for account in accounts
             ],
         }
-        temporary = self.path.with_name(f"{self.path.name}.tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        temporary = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex}.tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as file:
                 json.dump(payload, file, ensure_ascii=False, indent=2)

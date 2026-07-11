@@ -12,6 +12,8 @@
     pageSize: 50,
     total: 0,
     hasNext: false,
+    messagesController: null,
+    detailController: null,
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -336,29 +338,42 @@
   }
 
   async function loadMessages() {
-    if (state.loading) return;
+    if (state.messagesController) state.messagesController.abort();
+    const controller = new AbortController();
+    state.messagesController = controller;
     state.loading = true;
     if (!state.messages.length) skeleton();
     $('#refreshButton').querySelector('span').style.animation = 'spin .8s linear infinite';
     try {
       if (!state.account) {
+        state.total = 0;
+        state.hasNext = false;
         emptyState('尚未添加账号', '点击右上角头像添加 Gmail 账号', 'person_add');
         return;
       }
+      const requestedAccount = state.account;
+      const requestedView = state.view;
+      const requestedPage = state.page;
       const result = await api(
-        `/api/messages?view=${encodeURIComponent(state.view)}&limit=${state.pageSize}&page=${state.page}${accountQuery()}`,
+        `/api/messages?view=${encodeURIComponent(requestedView)}&limit=${state.pageSize}&page=${requestedPage}&account=${encodeURIComponent(requestedAccount)}`,
+        { signal: controller.signal },
       );
+      if (controller.signal.aborted || state.messagesController !== controller) return;
       state.messages = result.messages;
       state.total = result.total;
       state.page = result.page;
       state.hasNext = result.has_next;
       renderMessages();
     } catch (error) {
+      if (error.name === 'AbortError') return;
       emptyState('无法加载邮件', error.message, 'cloud_off');
       showToast(error.message, 6000);
     } finally {
-      state.loading = false;
-      $('#refreshButton').querySelector('span').style.animation = '';
+      if (state.messagesController === controller) {
+        state.messagesController = null;
+        state.loading = false;
+        $('#refreshButton').querySelector('span').style.animation = '';
+      }
     }
   }
 
@@ -385,6 +400,9 @@
   }
 
   async function openMessage(message) {
+    if (state.detailController) state.detailController.abort();
+    const controller = new AbortController();
+    state.detailController = controller;
     const token = `${state.account}:${state.view}:${message.uid}:${Date.now()}`;
     state.detailToken = token;
     state.selected = message;
@@ -414,11 +432,15 @@
       }).catch((error) => showToast(error.message));
     }
 
-    if (message._bodyLoaded) return;
+    if (message._bodyLoaded) {
+      state.detailController = null;
+      return;
+    }
 
     try {
       const fullMessage = await api(
         `/api/messages/${message.uid}?view=${encodeURIComponent(state.view)}${accountQuery()}`,
+        { signal: controller.signal },
       );
       if (state.detailToken !== token) return;
       fullMessage._bodyLoaded = true;
@@ -427,13 +449,18 @@
       if (index >= 0) state.messages[index] = fullMessage;
       renderMessageBody(fullMessage);
     } catch (error) {
+      if (error.name === 'AbortError') return;
       if (state.detailToken !== token) return;
       $('#detailText').textContent = `邮件内容加载失败：${error.message}`;
       showToast(error.message);
+    } finally {
+      if (state.detailController === controller) state.detailController = null;
     }
   }
 
   function closeDetail() {
+    if (state.detailController) state.detailController.abort();
+    state.detailController = null;
     detailPanel.classList.add('hidden');
     listPanel.classList.remove('hidden');
     state.selected = null;

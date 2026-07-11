@@ -1,5 +1,6 @@
 import json
 import stat
+from concurrent.futures import ThreadPoolExecutor
 
 from gmail_reader.accounts import AccountStore
 
@@ -31,3 +32,23 @@ def test_environment_account_is_not_deletable(tmp_path, monkeypatch):
 
     assert account.id == "env"
     assert account.public_dict()["deletable"] is False
+
+
+def test_concurrent_account_writes_do_not_lose_records(tmp_path, monkeypatch):
+    monkeypatch.setenv("GMAIL_ADDRESS", "")
+    monkeypatch.setenv("GMAIL_APP_PASSWORD", "")
+    store = AccountStore(tmp_path / "accounts.json")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(
+            executor.map(
+                lambda index: store.add(
+                    f"账号 {index}", f"person{index}@gmail.com", "abcdefghijklmnop"
+                ),
+                range(24),
+            )
+        )
+
+    accounts = store.list_accounts()
+    assert len(accounts) == 24
+    assert len({account.address for account in accounts}) == 24
