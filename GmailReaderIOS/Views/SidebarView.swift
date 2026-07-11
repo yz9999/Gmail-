@@ -3,6 +3,11 @@ import SwiftUI
 struct SidebarView: View {
     @EnvironmentObject private var accounts: AccountStore
     @EnvironmentObject private var model: MailboxViewModel
+    var onMailboxSelected: ((MailboxKind) -> Void)?
+
+    init(onMailboxSelected: ((MailboxKind) -> Void)? = nil) {
+        self.onMailboxSelected = onMailboxSelected
+    }
 
     var body: some View {
         List {
@@ -20,7 +25,11 @@ struct SidebarView: View {
             Section("邮箱") {
                 ForEach(MailboxKind.allCases) { mailbox in
                     Button {
-                        model.selectMailbox(mailbox)
+                        if let onMailboxSelected {
+                            onMailboxSelected(mailbox)
+                        } else {
+                            model.selectMailbox(mailbox)
+                        }
                     } label: {
                         Label(mailbox.title, systemImage: mailbox.symbol)
                             .frame(maxWidth: .infinity, alignment: .leading)

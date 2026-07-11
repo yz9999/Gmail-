@@ -3,12 +3,41 @@ import SwiftUI
 struct RootView: View {
     @EnvironmentObject private var accounts: AccountStore
     @EnvironmentObject private var model: MailboxViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var compactPath = NavigationPath()
 
     var body: some View {
         ZStack(alignment: .bottom) {
             if accounts.selectedAccount == nil {
                 NavigationStack { EmptyAccountView() }
+            } else if horizontalSizeClass == .compact {
+                NavigationStack(path: $compactPath) {
+                    SidebarView { mailbox in
+                        model.selectMailbox(mailbox)
+                        compactPath.append(CompactRoute.messageList)
+                    }
+                    .navigationDestination(for: CompactRoute.self) { route in
+                        switch route {
+                        case .messageList:
+                            MessageListView()
+                        }
+                    }
+                    .navigationDestination(for: MailSummary.self) { summary in
+                        MessageDetailView()
+                            .onAppear {
+                                if model.selectedSummary?.id != summary.id || model.selectedMessage?.id != summary.id {
+                                    model.open(summary)
+                                }
+                            }
+                    }
+                }
+                .task {
+                    // iPhone 竖屏启动后直接显示收件箱，用户仍可通过返回按钮打开侧边栏。
+                    if compactPath.count == 0 {
+                        compactPath.append(CompactRoute.messageList)
+                    }
+                }
             } else {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     SidebarView()
@@ -42,6 +71,10 @@ struct RootView: View {
             Text(model.errorMessage ?? "")
         }
     }
+}
+
+private enum CompactRoute: Hashable {
+    case messageList
 }
 
 private struct EmptyAccountView: View {
