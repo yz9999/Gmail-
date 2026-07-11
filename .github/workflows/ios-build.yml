@@ -1,0 +1,83 @@
+name: Build iOS App
+
+on:
+  push:
+    branches:
+      - ios-app
+  pull_request:
+    branches:
+      - ios-app
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Unsigned iPhone Build
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project GmailReaderIOS.xcodeproj \
+            -scheme GmailReaderIOS
+
+      - name: Build unsigned iOS app
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p build
+          xcodebuild \
+            -project GmailReaderIOS.xcodeproj \
+            -scheme GmailReaderIOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$PWD/build/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            clean build | tee build/xcodebuild.log
+
+      - name: Package build artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          test -d "$APP_PATH"
+
+          mkdir -p build/artifacts/Payload
+          ditto "$APP_PATH" "build/artifacts/Payload/$(basename "$APP_PATH")"
+          (
+            cd build/artifacts
+            zip -qry GmailReaderIOS-unsigned.ipa Payload
+            ditto -c -k --sequesterRsrc --keepParent "Payload/$(basename "$APP_PATH")" GmailReaderIOS-unsigned-app.zip
+          )
+
+          plutil -p "$APP_PATH/Info.plist"
+
+      - name: Upload unsigned app
+        uses: actions/upload-artifact@v4
+        with:
+          name: GmailReaderIOS-unsigned-${{ github.sha }}
+          path: |
+            build/artifacts/GmailReaderIOS-unsigned.ipa
+            build/artifacts/GmailReaderIOS-unsigned-app.zip
+            build/xcodebuild.log
+          if-no-files-found: error
+          retention-days: 14
