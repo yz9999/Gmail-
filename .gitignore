@@ -8,4 +8,8 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+.build/
+.swiftpm/
 *.egg-info/
+.DS_Store
+.vscode/

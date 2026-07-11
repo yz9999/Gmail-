@@ -1,154 +1,117 @@
-# Gmail 应用专用密码邮件读取器
+# Gmail Reader for macOS
 
-通过 Gmail IMAP 和应用专用密码读取邮件，支持：
+使用 **Swift 5.9 + SwiftUI** 完全重写的原生 macOS Gmail 客户端。应用直接通过 IMAPS/SMTPS 与 Gmail 通信，不启动 Python、Flask、WebView 本地服务器，也不占用 `5001` 或其他本地端口。
 
-- 检查账号配置
-- 获取最近邮件或未读邮件
-- IMAP IDLE 实时监听新邮件
-- 文本或 JSON 输出
-- 默认以只读方式打开邮箱，不会误标记已读
+## 功能
 
-## 1. 生成应用专用密码
+- Gmail 风格的原生 SwiftUI 界面
+- 多账号切换与账号管理
+- 应用专用密码保存在 macOS 钥匙串
+- 收件箱、未读、星标、已发送、草稿、所有邮件、垃圾邮件、回收站
+- 每页 50 封邮件，可前后翻页
+- 使用 Gmail `X-GM-RAW` 搜索整个邮箱，支持中文搜索
+- HTML 邮件通过禁用 JavaScript 的 `WKWebView` 显示
+- 标记已读/未读、星标、全部标记为已读
+- 通过 Gmail SMTPS 写信
+- 切换账号时取消旧任务，并用请求代次检查避免串号
+- SOCKS5 hostname 代理，默认 `127.0.0.1:6153`
+- TLS 主机名和系统证书链验证
 
-1. 登录 [Google 账号安全设置](https://myaccount.google.com/security)。
-2. 开启“两步验证”。
-3. 打开“应用专用密码”：<https://myaccount.google.com/apppasswords>
-4. 创建一个用于邮件读取的密码，复制生成的 16 位密码。
+## 系统要求
 
-如果看不到该入口，常见原因是账号没有开启两步验证、加入了高级保护计划，或 Workspace 管理员禁止了应用专用密码。
+- macOS 12 或更高版本
+- Swift 5.9 或 Xcode 15
+- Gmail 已开启两步验证并生成 16 位应用专用密码
+- 当前网络环境下需运行本机 SOCKS5 代理（默认端口 `6153`）
 
-## 2. 安装
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-## 3. 配置
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`：
-
-```dotenv
-GMAIL_ADDRESS=yourname@gmail.com
-GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
-```
-
-不要提交 `.env`。它已包含在 `.gitignore` 中。
-
-## 4. 使用
-
-检查连接：
+## 构建
 
 ```bash
-gmail-reader check
+./scripts/build_app.sh
 ```
 
-读取最近 10 封邮件：
-
-```bash
-gmail-reader fetch --limit 10
-```
-
-只读取未读邮件：
-
-```bash
-gmail-reader fetch --unread --limit 20
-```
-
-输出 JSON，便于其他程序处理：
-
-```bash
-gmail-reader fetch --unread --json
-```
-
-实时监听新邮件：
-
-```bash
-gmail-reader watch
-```
-
-启动监听时同时输出当前未读邮件：
-
-```bash
-gmail-reader watch --include-existing
-```
-
-监听并输出 JSON Lines：
-
-```bash
-gmail-reader watch --json
-```
-
-可通过 `Ctrl+C` 停止监听。连接断开后程序会自动重连；IDLE 会定期续订。
-
-## Web 网页版
-
-项目包含接近原生 Gmail 的响应式 Web 界面，可查看收件箱、未读、星标、已发送等邮箱，支持分页、搜索、查看正文、修改已读/星标状态、将当前视图的所有会话标记为已读和发送邮件。
-
-搜索框使用 Gmail 原生 `X-GM-RAW` 查询，会搜索整个“所有邮件”归档而不是只过滤当前页，并支持 Gmail 查询语法，例如：
+生成文件：
 
 ```text
-Microsoft
-from:microsoft.com
-subject:安全代码
-has:attachment newer_than:30d
+dist/Gmail Reader.app
 ```
 
-启动：
+安装：
 
 ```bash
-source .venv/bin/activate
-gmail-web
+rm -rf "/Applications/Gmail Reader.app"
+cp -R "dist/Gmail Reader.app" /Applications/
+open "/Applications/Gmail Reader.app"
 ```
 
-浏览器访问：<http://127.0.0.1:5001>
+脚本会执行 SwiftPM Release 构建、创建标准 `.app` Bundle，并进行本机临时签名。正式分发时应改用 Developer ID 签名并完成 Apple 公证。
 
-Web 服务只允许监听 `localhost` 或回环地址，避免邮箱接口意外暴露到局域网或公网。端口可通过 `.env` 中的 `GMAIL_WEB_PORT` 修改。
+## 账号与迁移
 
-浏览器会显示 HTTP 登录窗口：
+首次启动时，如果以下旧版配置存在，应用会把账号元数据迁移到原生配置文件，并把应用专用密码写入 macOS 钥匙串：
 
 ```text
-用户名：gmail
-密码：.env 中的 GMAIL_WEB_TOKEN
+~/Library/Application Support/Gmail Reader/.env
+~/Library/Application Support/Gmail Reader/accounts.json
 ```
 
-如果没有配置 `GMAIL_WEB_TOKEN`，服务启动时会生成一次性随机密码并显示在终端。建议在 `.env` 中保存一个随机密码：
+迁移成功后会删除上述明文凭据文件。新版本账号元数据位于：
+
+```text
+~/Library/Application Support/Gmail Reader/native-accounts.json
+```
+
+该文件不含密码。钥匙串服务名为：
+
+```text
+com.yz9999.GmailReader.password
+```
+
+仓库根目录的 `.env`、`accounts.json`、构建目录和用户编辑器配置均被 `.gitignore` 排除。
+
+## 网络实现
+
+普通 IMAP 与 SMTP 请求使用系统 `libcurl`：
+
+- `imaps://imap.gmail.com:993`
+- `smtps://smtp.gmail.com:465`
+- `CURLPROXY_SOCKS5_HOSTNAME`
+
+邮件列表摘要使用一条原生 `UID FETCH` 批量读取 50 封邮件，避免逐封往返造成刷新缓慢。非 ASCII Gmail 搜索需要 IMAP UTF-8 literal；这两类请求使用 SOCKS5 隧道与 Secure Transport 建立经过系统信任评估的 TLS 会话。
+
+中文搜索发送：
+
+```text
+UID SEARCH CHARSET UTF-8 X-GM-RAW {字节数}
+```
+
+这样不会依赖会返回 Fake-IP 的本机 DNS，也不会关闭证书验证。
+
+## 测试
 
 ```bash
-python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+swift test
 ```
 
-### 多账号
+运行 XCTest 需要完整 Xcode。仅安装 Command Line Tools 的机器仍可构建和运行应用，但该工具链可能提示 `XCTest not available`。
 
-点击网页右上角头像，再点击“添加其他账号”，输入 Gmail 地址和对应的 16 位应用专用密码。程序会先验证登录，成功后才保存。
+## 工程结构
 
-- `.env` 中的账号会作为默认账号显示。
-- 新增账号保存在本机 `accounts.json`，文件权限自动设置为 `600`。
-- 可以随时从右上角账号菜单切换或移除账号。
-- `accounts.json` 已加入 `.gitignore`，不会被提交到 Git。
-
-邮件列表只获取标题、发件人、日期和状态，点击邮件时再按需获取完整正文；Web 服务会复用每个账号的 IMAP 连接，因此连续刷新和账号内操作会明显更快。
-
-### 代理网络
-
-如果本机使用 Clash、Surge 等代理，浏览器能打开 Google 但 IMAP 出现 `SSL: UNEXPECTED_EOF_WHILE_READING`，请让 IMAP/SMTP 通过 SOCKS 代理：
-
-```dotenv
-GMAIL_PROXY_TYPE=socks5
-GMAIL_PROXY_HOST=127.0.0.1
-GMAIL_PROXY_PORT=6153
-GMAIL_PROXY_RDNS=true
+```text
+Package.swift
+Sources/
+├── CurlShim/                 # libcurl、SOCKS5 与 IMAP UTF-8 C 桥接
+└── GmailReaderApp/
+    ├── GmailReaderApp.swift
+    ├── AccountStore.swift
+    ├── KeychainStore.swift
+    ├── GmailService.swift
+    ├── CurlTransport.swift
+    ├── MIMEParser.swift
+    ├── MailboxViewModel.swift
+    ├── HTMLWebView.swift
+    └── RootView.swift
+Resources/
+Tests/
+scripts/build_app.sh
 ```
-
-Surge 常用 SOCKS 端口为 `6153`，Clash 常用 `7891`。应以代理软件中显示的 SOCKS 端口为准；不使用代理时将 `GMAIL_PROXY_TYPE` 留空。
-
-## 安全说明
-
-- 应用专用密码仍然是敏感凭据，只放在本机 `.env` 或生产环境的密钥管理服务中。
-- 修改 Google 主密码、手动撤销应用专用密码或账号策略变化后，需要生成新密码。
-- 若部署到长期运行的服务器，更推荐用环境变量注入密码，不要将 `.env` 复制进镜像。
