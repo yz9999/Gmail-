@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageDetailView: View {
     @EnvironmentObject private var model: MailboxViewModel
+    @AppStorage("messageContentScale") private var contentScale = 0.90
 
     var body: some View {
         Group {
@@ -46,11 +47,11 @@ struct MessageDetailView: View {
                         }
 
                         if !message.htmlBody.isEmpty {
-                            HTMLWebView(html: message.htmlBody)
+                            HTMLWebView(html: message.htmlBody, contentScale: contentScale)
                                 .frame(minHeight: 420)
                         } else {
                             Text(message.plainBody)
-                                .font(.body)
+                                .font(.system(size: CGFloat(16 * contentScale)))
                                 .lineSpacing(4)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -60,6 +61,13 @@ struct MessageDetailView: View {
                 }
                 .toolbar {
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        Menu {
+                            scaleButton(title: "较小（82%）", value: 0.82, symbol: "textformat.size.smaller")
+                            scaleButton(title: "标准（90%）", value: 0.90, symbol: "textformat")
+                            scaleButton(title: "原始（100%）", value: 1.00, symbol: "textformat.size.larger")
+                        } label: {
+                            Image(systemName: "textformat.size")
+                        }
                         Button { model.markUnread(summary) } label: { Image(systemName: "envelope.badge") }
                     }
                 }
@@ -72,5 +80,11 @@ struct MessageDetailView: View {
         }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func scaleButton(title: String, value: Double, symbol: String) -> some View {
+        Button { contentScale = value } label: {
+            Label(title, systemImage: abs(contentScale - value) < 0.001 ? "checkmark" : symbol)
+        }
     }
 }
