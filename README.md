@@ -1,154 +1,105 @@
-# Gmail 应用专用密码邮件读取器
+# Gmail Reader for iOS
 
-通过 Gmail IMAP 和应用专用密码读取邮件，支持：
+使用 **Swift 5 + SwiftUI** 编写的原生 iPhone/iPad Gmail 客户端。本分支仅包含 iOS 工程，不包含任何本机账号、邮箱地址、应用专用密码、Cookie 或 `.env` 数据。
 
-- 检查账号配置
-- 获取最近邮件或未读邮件
-- IMAP IDLE 实时监听新邮件
-- 文本或 JSON 输出
-- 默认以只读方式打开邮箱，不会误标记已读
+## 分支
 
-## 1. 生成应用专用密码
+- `main`：Web 版本
+- `macos-app`：macOS SwiftUI 版本
+- `ios-app`：iOS SwiftUI 版本
 
-1. 登录 [Google 账号安全设置](https://myaccount.google.com/security)。
-2. 开启“两步验证”。
-3. 打开“应用专用密码”：<https://myaccount.google.com/apppasswords>
-4. 创建一个用于邮件读取的密码，复制生成的 16 位密码。
+## 功能
 
-如果看不到该入口，常见原因是账号没有开启两步验证、加入了高级保护计划，或 Workspace 管理员禁止了应用专用密码。
+- iPhone 与 iPad 自适应 SwiftUI 界面
+- 多账号管理与快速切换
+- 应用专用密码保存在 iOS 钥匙串，使用 `ThisDeviceOnly`
+- 收件箱、未读、星标、已发送、草稿、所有邮件、垃圾邮件、回收站
+- 每页 50 封邮件及前后翻页
+- 使用 Gmail `X-GM-RAW` 搜索整个邮箱
+- HTML 邮件通过禁用 JavaScript 的 `WKWebView` 显示
+- 标记已读/未读、星标、全部标记为已读
+- Gmail SMTPS 写信
+- 切换账号时取消旧任务，并阻止旧请求覆盖当前账号界面
+- TLS 证书验证始终开启
 
-## 2. 安装
+## 账号数据
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-```
-
-## 3. 配置
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`：
-
-```dotenv
-GMAIL_ADDRESS=yourname@gmail.com
-GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
-```
-
-不要提交 `.env`。它已包含在 `.gitignore` 中。
-
-## 4. 使用
-
-检查连接：
-
-```bash
-gmail-reader check
-```
-
-读取最近 10 封邮件：
-
-```bash
-gmail-reader fetch --limit 10
-```
-
-只读取未读邮件：
-
-```bash
-gmail-reader fetch --unread --limit 20
-```
-
-输出 JSON，便于其他程序处理：
-
-```bash
-gmail-reader fetch --unread --json
-```
-
-实时监听新邮件：
-
-```bash
-gmail-reader watch
-```
-
-启动监听时同时输出当前未读邮件：
-
-```bash
-gmail-reader watch --include-existing
-```
-
-监听并输出 JSON Lines：
-
-```bash
-gmail-reader watch --json
-```
-
-可通过 `Ctrl+C` 停止监听。连接断开后程序会自动重连；IDLE 会定期续订。
-
-## Web 网页版
-
-项目包含接近原生 Gmail 的响应式 Web 界面，可查看收件箱、未读、星标、已发送等邮箱，支持分页、搜索、查看正文、修改已读/星标状态、将当前视图的所有会话标记为已读和发送邮件。
-
-搜索框使用 Gmail 原生 `X-GM-RAW` 查询，会搜索整个“所有邮件”归档而不是只过滤当前页，并支持 Gmail 查询语法，例如：
+应用首次启动为空，不会读取或导入：
 
 ```text
-Microsoft
-from:microsoft.com
-subject:安全代码
-has:attachment newer_than:30d
+.env
+accounts.json
+macOS 钥匙串
+macOS Gmail Reader 配置
+浏览器 Cookie
 ```
 
-启动：
-
-```bash
-source .venv/bin/activate
-gmail-web
-```
-
-浏览器访问：<http://127.0.0.1:5001>
-
-Web 服务只允许监听 `localhost` 或回环地址，避免邮箱接口意外暴露到局域网或公网。端口可通过 `.env` 中的 `GMAIL_WEB_PORT` 修改。
-
-浏览器会显示 HTTP 登录窗口：
+账号元数据保存在 iOS Application Support 中，文件不含密码。应用专用密码保存在钥匙串服务：
 
 ```text
-用户名：gmail
-密码：.env 中的 GMAIL_WEB_TOKEN
+com.yz9999.GmailReaderIOS.password
 ```
 
-如果没有配置 `GMAIL_WEB_TOKEN`，服务启动时会生成一次性随机密码并显示在终端。建议在 `.env` 中保存一个随机密码：
+仓库已忽略 `.env`、`accounts.json`、证书、描述文件和 Xcode 用户数据。
 
-```bash
-python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+## 构建要求
+
+- Xcode 15 或更高版本
+- iOS 16 或更高版本
+- Google 账号已开启两步验证
+- 已生成 16 位 Google 应用专用密码
+
+## 构建步骤
+
+1. 使用 Xcode 打开：
+
+   ```text
+   GmailReaderIOS.xcodeproj
+   ```
+
+2. 等待 Swift Package Manager 下载 MailCore2。
+3. 在 `Signing & Capabilities` 中选择自己的 Apple Developer Team。
+4. 选择 iPhone、iPad 或真机后运行。
+
+工程使用固定的 MailCore2 revision：
+
+```text
+7417b2e8dd7e2c028aadb72056e4d1428c0627c4
 ```
 
-### 多账号
+Intel Mac 可直接运行 x86_64 模拟器。MailCore2 当前二进制不包含 arm64 Simulator slice；Apple Silicon Mac 建议使用真机，或以 Rosetta 方式运行兼容的模拟器构建环境。
 
-点击网页右上角头像，再点击“添加其他账号”，输入 Gmail 地址和对应的 16 位应用专用密码。程序会先验证登录，成功后才保存。
+## 网络
 
-- `.env` 中的账号会作为默认账号显示。
-- 新增账号保存在本机 `accounts.json`，文件权限自动设置为 `600`。
-- 可以随时从右上角账号菜单切换或移除账号。
-- `accounts.json` 已加入 `.gitignore`，不会被提交到 Git。
+- IMAPS：`imap.gmail.com:993`
+- SMTPS：`smtp.gmail.com:465`
+- TLS 证书检查：开启
+- Gmail 全邮箱搜索：`X-GM-RAW`
 
-邮件列表只获取标题、发件人、日期和状态，点击邮件时再按需获取完整正文；Web 服务会复用每个账号的 IMAP 连接，因此连续刷新和账号内操作会明显更快。
+iOS 版本不在应用内保存代理账号。需要代理网络时，使用 iOS 系统 VPN 或能够接管设备网络流量的代理配置。
 
-### 代理网络
+## 工程结构
 
-如果本机使用 Clash、Surge 等代理，浏览器能打开 Google 但 IMAP 出现 `SSL: UNEXPECTED_EOF_WHILE_READING`，请让 IMAP/SMTP 通过 SOCKS 代理：
-
-```dotenv
-GMAIL_PROXY_TYPE=socks5
-GMAIL_PROXY_HOST=127.0.0.1
-GMAIL_PROXY_PORT=6153
-GMAIL_PROXY_RDNS=true
+```text
+GmailReaderIOS.xcodeproj/
+GmailReaderIOS/
+├── GmailReaderIOSApp.swift
+├── Models/
+│   └── MailModels.swift
+├── Services/
+│   ├── AccountStore.swift
+│   ├── KeychainStore.swift
+│   └── MailCoreService.swift
+├── ViewModels/
+│   └── MailboxViewModel.swift
+├── Views/
+│   ├── RootView.swift
+│   ├── SidebarView.swift
+│   ├── MessageListView.swift
+│   ├── MessageDetailView.swift
+│   ├── HTMLWebView.swift
+│   ├── ComposeView.swift
+│   └── AccountManagerView.swift
+└── Resources/
+    └── Assets.xcassets
 ```
-
-Surge 常用 SOCKS 端口为 `6153`，Clash 常用 `7891`。应以代理软件中显示的 SOCKS 端口为准；不使用代理时将 `GMAIL_PROXY_TYPE` 留空。
-
-## 安全说明
-
-- 应用专用密码仍然是敏感凭据，只放在本机 `.env` 或生产环境的密钥管理服务中。
-- 修改 Google 主密码、手动撤销应用专用密码或账号策略变化后，需要生成新密码。
-- 若部署到长期运行的服务器，更推荐用环境变量注入密码，不要将 `.env` 复制进镜像。

@@ -1,0 +1,146 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* GmailReaderIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* GmailReaderIOSApp.swift */; };
+		A10000000000000000000002 /* MailModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* MailModels.swift */; };
+		A10000000000000000000003 /* AccountStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* AccountStore.swift */; };
+		A10000000000000000000004 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* KeychainStore.swift */; };
+		A10000000000000000000005 /* MailCoreService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* MailCoreService.swift */; };
+		A10000000000000000000006 /* MailboxViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* MailboxViewModel.swift */; };
+		A10000000000000000000007 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* RootView.swift */; };
+		A10000000000000000000008 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* SidebarView.swift */; };
+		A10000000000000000000009 /* MessageListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* MessageListView.swift */; };
+		A1000000000000000000000A /* MessageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* MessageDetailView.swift */; };
+		A1000000000000000000000B /* HTMLWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* HTMLWebView.swift */; };
+		A1000000000000000000000C /* ComposeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* ComposeView.swift */; };
+		A1000000000000000000000D /* AccountManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000D /* AccountManagerView.swift */; };
+		A1000000000000000000000E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000E /* Assets.xcassets */; };
+		A1000000000000000000000F /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* Preview Assets.xcassets */; };
+		A10000000000000000000011 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000011 /* PrivacyInfo.xcprivacy */; };
+		A10000000000000000000010 /* MailCore2 in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000002 /* MailCore2 */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B10000000000000000000001 /* GmailReaderIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailReaderIOSApp.swift; sourceTree = "<group>"; };
+		B10000000000000000000002 /* MailModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailModels.swift; sourceTree = "<group>"; };
+		B10000000000000000000003 /* AccountStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000004 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		B10000000000000000000005 /* MailCoreService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailCoreService.swift; sourceTree = "<group>"; };
+		B10000000000000000000006 /* MailboxViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxViewModel.swift; sourceTree = "<group>"; };
+		B10000000000000000000007 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		B10000000000000000000008 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B10000000000000000000009 /* MessageListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageListView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000A /* MessageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageDetailView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000B /* HTMLWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HTMLWebView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000C /* ComposeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposeView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000D /* AccountManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountManagerView.swift; sourceTree = "<group>"; };
+		B1000000000000000000000E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1000000000000000000000F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		B10000000000000000000011 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B10000000000000000000010 /* GmailReaderIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GmailReaderIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C10000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A10000000000000000000010 /* MailCore2 in Frameworks */,);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D10000000000000000000001 = {
+			isa = PBXGroup;
+			children = (D10000000000000000000002 /* GmailReaderIOS */, D10000000000000000000009 /* Products */, D1000000000000000000000A /* Frameworks */);
+			sourceTree = "<group>";
+		};
+		D10000000000000000000002 /* GmailReaderIOS */ = {
+			isa = PBXGroup;
+			children = (B10000000000000000000001 /* GmailReaderIOSApp.swift */, D10000000000000000000003 /* Models */, D10000000000000000000004 /* Services */, D10000000000000000000005 /* ViewModels */, D10000000000000000000006 /* Views */, D10000000000000000000007 /* Resources */, D10000000000000000000008 /* Preview Content */);
+			path = GmailReaderIOS;
+			sourceTree = "<group>";
+		};
+		D10000000000000000000003 /* Models */ = {isa = PBXGroup; children = (B10000000000000000000002 /* MailModels.swift */,); path = Models; sourceTree = "<group>"; };
+		D10000000000000000000004 /* Services */ = {isa = PBXGroup; children = (B10000000000000000000003 /* AccountStore.swift */, B10000000000000000000004 /* KeychainStore.swift */, B10000000000000000000005 /* MailCoreService.swift */,); path = Services; sourceTree = "<group>"; };
+		D10000000000000000000005 /* ViewModels */ = {isa = PBXGroup; children = (B10000000000000000000006 /* MailboxViewModel.swift */,); path = ViewModels; sourceTree = "<group>"; };
+		D10000000000000000000006 /* Views */ = {isa = PBXGroup; children = (B10000000000000000000007 /* RootView.swift */, B10000000000000000000008 /* SidebarView.swift */, B10000000000000000000009 /* MessageListView.swift */, B1000000000000000000000A /* MessageDetailView.swift */, B1000000000000000000000B /* HTMLWebView.swift */, B1000000000000000000000C /* ComposeView.swift */, B1000000000000000000000D /* AccountManagerView.swift */,); path = Views; sourceTree = "<group>"; };
+		D10000000000000000000007 /* Resources */ = {isa = PBXGroup; children = (B1000000000000000000000E /* Assets.xcassets */, B10000000000000000000011 /* PrivacyInfo.xcprivacy */,); path = Resources; sourceTree = "<group>"; };
+		D10000000000000000000008 /* Preview Content */ = {isa = PBXGroup; children = (B1000000000000000000000F /* Preview Assets.xcassets */,); path = "Preview Content"; sourceTree = "<group>"; };
+		D10000000000000000000009 /* Products */ = {isa = PBXGroup; children = (B10000000000000000000010 /* GmailReaderIOS.app */,); name = Products; sourceTree = "<group>"; };
+		D1000000000000000000000A /* Frameworks */ = {isa = PBXGroup; children = (); name = Frameworks; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E10000000000000000000001 /* GmailReaderIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E10000000000000000000002 /* Build configuration list for PBXNativeTarget */;
+			buildPhases = (C10000000000000000000002 /* Sources */, C10000000000000000000001 /* Frameworks */, C10000000000000000000003 /* Resources */);
+			buildRules = ();
+			dependencies = ();
+			name = GmailReaderIOS;
+			packageProductDependencies = (F10000000000000000000002 /* MailCore2 */,);
+			productName = GmailReaderIOS;
+			productReference = B10000000000000000000010 /* GmailReaderIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		E10000000000000000000003 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1500; LastUpgradeCheck = 1500; TargetAttributes = {E10000000000000000000001 = {CreatedOnToolsVersion = 15.0;};};};
+			buildConfigurationList = E10000000000000000000004 /* Build configuration list for PBXProject */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = zh_CN;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base, zh_CN,);
+			mainGroup = D10000000000000000000001;
+			packageReferences = (F10000000000000000000001 /* XCRemoteSwiftPackageReference MailCore2 */,);
+			productRefGroup = D10000000000000000000009 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (E10000000000000000000001 /* GmailReaderIOS */,);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000E /* Assets.xcassets in Resources */, A1000000000000000000000F /* Preview Assets.xcassets in Resources */, A10000000000000000000011 /* PrivacyInfo.xcprivacy in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C10000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (A10000000000000000000001, A10000000000000000000002, A10000000000000000000003, A10000000000000000000004, A10000000000000000000005, A10000000000000000000006, A10000000000000000000007, A10000000000000000000008, A10000000000000000000009, A1000000000000000000000A, A1000000000000000000000B, A1000000000000000000000C, A1000000000000000000000D,);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		E10000000000000000000005 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; GCC_C_LANGUAGE_STANDARD = gnu17; GCC_OPTIMIZATION_LEVEL = 0; GCC_PREPROCESSOR_DEFINITIONS = ("DEBUG=1", "$(inherited)",); IPHONEOS_DEPLOYMENT_TARGET = 16.0; MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE; ONLY_ACTIVE_ARCH = YES; SDKROOT = iphoneos; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; }; name = Debug; };
+		E10000000000000000000006 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CLANG_ENABLE_OBJC_ARC = YES; COPY_PHASE_STRIP = YES; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; ENABLE_NS_ASSERTIONS = NO; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 16.0; MTL_ENABLE_DEBUG_INFO = NO; SDKROOT = iphoneos; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O"; VALIDATE_PRODUCT = YES; }; name = Release; };
+		E10000000000000000000007 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_ASSET_PATHS = "\"GmailReaderIOS/Preview Content\""; ENABLE_PREVIEWS = YES; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = "Gmail Reader"; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks",); MARKETING_VERSION = 1.0.0; OTHER_LDFLAGS = ("$(inherited)", "-ObjC",); PRODUCT_BUNDLE_IDENTIFIER = com.yz9999.GmailReaderIOS; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Debug; };
+		E10000000000000000000008 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; DEVELOPMENT_ASSET_PATHS = "\"GmailReaderIOS/Preview Content\""; ENABLE_PREVIEWS = YES; "EXCLUDED_ARCHS[sdk=iphonesimulator*]" = arm64; GENERATE_INFOPLIST_FILE = YES; INFOPLIST_KEY_CFBundleDisplayName = "Gmail Reader"; INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity"; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES; INFOPLIST_KEY_UILaunchScreen_Generation = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks",); MARKETING_VERSION = 1.0.0; OTHER_LDFLAGS = ("$(inherited)", "-ObjC",); PRODUCT_BUNDLE_IDENTIFIER = com.yz9999.GmailReaderIOS; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		E10000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (E10000000000000000000007 /* Debug */, E10000000000000000000008 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		E10000000000000000000004 = {isa = XCConfigurationList; buildConfigurations = (E10000000000000000000005 /* Debug */, E10000000000000000000006 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F10000000000000000000001 /* XCRemoteSwiftPackageReference MailCore2 */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/MailCore/mailcore2.git"; requirement = {kind = revision; revision = 7417b2e8dd7e2c028aadb72056e4d1428c0627c4;}; };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F10000000000000000000002 /* MailCore2 */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000001 /* XCRemoteSwiftPackageReference MailCore2 */; productName = MailCore2; };
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = E10000000000000000000003 /* Project object */;
+}
