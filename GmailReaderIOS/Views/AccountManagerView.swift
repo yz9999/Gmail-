@@ -23,7 +23,7 @@ struct AccountManagerView: View {
                                 }
                                 Spacer()
                                 if account.id == accounts.selectedAccountID {
-                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.blue)
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(GmailTheme.red)
                                 }
                             }
                             .contentShape(Rectangle())

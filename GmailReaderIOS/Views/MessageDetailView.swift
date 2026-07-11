@@ -10,12 +10,29 @@ struct MessageDetailView: View {
             } else if let message = model.selectedMessage, let summary = model.selectedSummary {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        Text(message.subject)
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                         HStack(alignment: .top, spacing: 12) {
-                            AccountAvatar(text: message.sender)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(message.subject)
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(model.mailbox.title)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                            }
+                            Button { model.toggleStar(summary) } label: {
+                                Image(systemName: message.isStarred ? "star.fill" : "star")
+                                    .font(.title3)
+                                    .foregroundStyle(message.isStarred ? Color.yellow : Color.secondary)
+                                    .frame(width: 38, height: 38)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        HStack(alignment: .top, spacing: 12) {
+                            AccountAvatar(text: message.sender, size: 42)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(message.sender).font(.subheadline.bold()).textSelection(.enabled)
                                 Text("发送至 \(message.recipients)")
@@ -43,10 +60,6 @@ struct MessageDetailView: View {
                 }
                 .toolbar {
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
-                        Button { model.toggleStar(summary) } label: {
-                            Image(systemName: message.isStarred ? "star.fill" : "star")
-                                .foregroundColor(message.isStarred ? .yellow : .primary)
-                        }
                         Button { model.markUnread(summary) } label: { Image(systemName: "envelope.badge") }
                     }
                 }
@@ -57,7 +70,7 @@ struct MessageDetailView: View {
                 }
             }
         }
-        .navigationTitle("邮件")
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

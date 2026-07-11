@@ -5,39 +5,13 @@ struct RootView: View {
     @EnvironmentObject private var model: MailboxViewModel
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var compactPath = NavigationPath()
 
     var body: some View {
         ZStack(alignment: .bottom) {
             if accounts.selectedAccount == nil {
                 NavigationStack { EmptyAccountView() }
             } else if horizontalSizeClass == .compact {
-                NavigationStack(path: $compactPath) {
-                    SidebarView { mailbox in
-                        model.selectMailbox(mailbox)
-                        compactPath.append(CompactRoute.messageList)
-                    }
-                    .navigationDestination(for: CompactRoute.self) { route in
-                        switch route {
-                        case .messageList:
-                            MessageListView()
-                        }
-                    }
-                    .navigationDestination(for: MailSummary.self) { summary in
-                        MessageDetailView()
-                            .onAppear {
-                                if model.selectedSummary?.id != summary.id || model.selectedMessage?.id != summary.id {
-                                    model.open(summary)
-                                }
-                            }
-                    }
-                }
-                .task {
-                    // iPhone 竖屏启动后直接显示收件箱，用户仍可通过返回按钮打开侧边栏。
-                    if compactPath.count == 0 {
-                        compactPath.append(CompactRoute.messageList)
-                    }
-                }
+                PhoneMailContainer()
             } else {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     SidebarView()
@@ -59,7 +33,7 @@ struct RootView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .tint(Color(red: 0.10, green: 0.42, blue: 0.90))
+        .tint(GmailTheme.red)
         .sheet(isPresented: $model.showingAccounts) { AccountManagerView() }
         .sheet(isPresented: $model.showingCompose) { ComposeView() }
         .alert("Gmail Reader", isPresented: Binding(
@@ -73,8 +47,60 @@ struct RootView: View {
     }
 }
 
-private enum CompactRoute: Hashable {
-    case messageList
+enum GmailTheme {
+    static let red = Color(red: 0.85, green: 0.18, blue: 0.16)
+    static let compose = Color(red: 0.96, green: 0.84, blue: 0.82)
+}
+
+private struct PhoneMailContainer: View {
+    @EnvironmentObject private var model: MailboxViewModel
+    @State private var path = NavigationPath()
+    @State private var showingSidebar = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                NavigationStack(path: $path) {
+                    PhoneMessageListView(
+                        openSidebar: {
+                            withAnimation(.easeOut(duration: 0.22)) { showingSidebar = true }
+                        },
+                        openMessage: { summary in
+                            model.open(summary)
+                            path.append(summary)
+                        }
+                    )
+                    .navigationDestination(for: MailSummary.self) { summary in
+                        MessageDetailView()
+                            .onAppear {
+                                if model.selectedSummary?.id != summary.id || model.selectedMessage?.id != summary.id {
+                                    model.open(summary)
+                                }
+                            }
+                    }
+                }
+                .allowsHitTesting(!showingSidebar)
+
+                if showingSidebar {
+                    Color.black.opacity(0.34)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeIn(duration: 0.18)) { showingSidebar = false }
+                        }
+                        .transition(.opacity)
+                        .zIndex(1)
+
+                    PhoneSidebarDrawer {
+                        withAnimation(.easeIn(duration: 0.18)) { showingSidebar = false }
+                    }
+                    .frame(width: min(proxy.size.width * 0.88, 380))
+                    .background(Color(uiColor: .systemBackground))
+                    .transition(.move(edge: .leading))
+                    .zIndex(2)
+                }
+            }
+        }
+    }
 }
 
 private struct EmptyAccountView: View {

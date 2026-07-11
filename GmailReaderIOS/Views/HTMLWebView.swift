@@ -27,7 +27,7 @@ struct HTMLWebView: UIViewRepresentable {
         <meta name="viewport" content="width=device-width,initial-scale=1">
         <meta name="referrer" content="no-referrer">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline' https:; font-src data: https:">
-        <style>html,body{margin:0;padding:0;background:transparent;color:#202124;font:16px -apple-system,sans-serif;line-height:1.55;overflow-wrap:anywhere}img{max-width:100%;height:auto}pre{white-space:pre-wrap}</style>
+        <style>html,body{margin:0;padding:0;background:transparent;color:#202124;font:16px -apple-system,sans-serif;line-height:1.55;overflow-wrap:anywhere}img{max-width:100%;height:auto}pre{white-space:pre-wrap}@media(prefers-color-scheme:dark){html,body{color:#e8eaed}a{color:#8ab4f8}}</style>
         </head><body>\(html)</body></html>
         """
         if context.coordinator.lastHTML != wrapped {
