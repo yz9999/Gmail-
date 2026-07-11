@@ -307,6 +307,8 @@ button { color: inherit; }
   height: calc(100% - 104px);
   overflow: auto;
 }
+.mail-panel.searching .category-tabs { display: none; }
+.mail-panel.searching .message-list { height: calc(100% - 48px); }
 .message-row {
   min-height: 40px;
   display: grid;

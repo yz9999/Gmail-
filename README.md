@@ -90,6 +90,15 @@ gmail-reader watch --json
 
 项目包含接近原生 Gmail 的响应式 Web 界面，可查看收件箱、未读、星标、已发送等邮箱，支持分页、搜索、查看正文、修改已读/星标状态、将当前视图的所有会话标记为已读和发送邮件。
 
+搜索框使用 Gmail 原生 `X-GM-RAW` 查询，会搜索整个“所有邮件”归档而不是只过滤当前页，并支持 Gmail 查询语法，例如：
+
+```text
+Microsoft
+from:microsoft.com
+subject:安全代码
+has:attachment newer_than:30d
+```
+
 启动：
 
 ```bash
@@ -99,7 +108,20 @@ gmail-web
 
 浏览器访问：<http://127.0.0.1:5001>
 
-Web 服务默认只监听本机 `127.0.0.1`，不会暴露到局域网或公网。端口可通过 `.env` 中的 `GMAIL_WEB_PORT` 修改。
+Web 服务只允许监听 `localhost` 或回环地址，避免邮箱接口意外暴露到局域网或公网。端口可通过 `.env` 中的 `GMAIL_WEB_PORT` 修改。
+
+浏览器会显示 HTTP 登录窗口：
+
+```text
+用户名：gmail
+密码：.env 中的 GMAIL_WEB_TOKEN
+```
+
+如果没有配置 `GMAIL_WEB_TOKEN`，服务启动时会生成一次性随机密码并显示在终端。建议在 `.env` 中保存一个随机密码：
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
 
 ### 多账号
 

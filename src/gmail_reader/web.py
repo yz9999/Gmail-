@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import os
 import re
+import secrets
 import smtplib
 from email.utils import getaddresses
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 from imapclient.exceptions import IMAPClientError, LoginError
 from dotenv import load_dotenv
 
@@ -17,19 +20,51 @@ from .pool import GmailConnectionPool
 
 def create_app() -> Flask:
     load_dotenv()
+    configured_token = os.getenv("GMAIL_WEB_TOKEN", "").strip()
+    if configured_token and len(configured_token) < 24:
+        raise ConfigurationError("GMAIL_WEB_TOKEN 至少需要 24 个字符")
     app = Flask(__name__)
     app.json.ensure_ascii = False
     app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
     app.config["TRUSTED_HOSTS"] = ["localhost", "127.0.0.1", "::1"]
+    app.config["GMAIL_WEB_TOKEN"] = configured_token or secrets.token_urlsafe(32)
     account_store = AccountStore()
     connection_pool = GmailConnectionPool(account_store)
+
+    @app.before_request
+    def require_web_authentication():
+        if request.remote_addr and not _is_loopback_host(request.remote_addr):
+            return jsonify({"error": "只允许从本机访问"}), 403
+        authorization = request.authorization
+        valid = (
+            authorization is not None
+            and (authorization.type or "").lower() == "basic"
+            and hmac.compare_digest(authorization.username or "", "gmail")
+            and hmac.compare_digest(
+                authorization.password or "", app.config["GMAIL_WEB_TOKEN"]
+            )
+        )
+        if valid:
+            return None
+
+        if request.path.startswith("/api/"):
+            response = jsonify({"error": "需要 Web 登录认证"})
+            response.status_code = 401
+        else:
+            response = Response("需要登录 Gmail Reader", status=401, mimetype="text/plain")
+        response.headers["WWW-Authenticate"] = 'Basic realm="Gmail Reader", charset="UTF-8"'
+        return response
 
     @app.after_request
     def security_headers(response):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if request.path == "/" or request.path.startswith("/api/"):
+        if (
+            request.path == "/"
+            or request.path.startswith("/api/")
+            or request.path.endswith((".js", ".css"))
+        ):
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -44,7 +79,7 @@ def create_app() -> Flask:
 
     @app.post("/api/accounts")
     def add_account():
-        payload = request.get_json() or {}
+        payload = _json_object()
         name = str(payload.get("name", ""))
         address = str(payload.get("address", ""))
         app_password = str(payload.get("app_password", ""))
@@ -71,12 +106,19 @@ def create_app() -> Flask:
     @app.get("/api/messages")
     def messages():
         view = request.args.get("view", "inbox")
+        query = request.args.get("q", "").strip()
         limit = min(max(request.args.get("limit", 30, type=int), 1), 100)
         page = max(request.args.get("page", 1, type=int), 1)
-        records, total = connection_pool.execute(
-            request.args.get("account"),
-            lambda reader: reader.fetch_view_page(view=view, page=page, limit=limit),
-        )
+        if query:
+            records, total = connection_pool.execute(
+                request.args.get("account"),
+                lambda reader: reader.search_page(query=query, page=page, limit=limit),
+            )
+        else:
+            records, total = connection_pool.execute(
+                request.args.get("account"),
+                lambda reader: reader.fetch_view_page(view=view, page=page, limit=limit),
+            )
         return jsonify(
             {
                 "messages": [record.to_dict() for record in reversed(records)],
@@ -85,6 +127,7 @@ def create_app() -> Flask:
                 "total": total,
                 "has_previous": page > 1,
                 "has_next": page * limit < total,
+                "query": query,
             }
         )
 
@@ -100,7 +143,7 @@ def create_app() -> Flask:
 
     @app.post("/api/messages/<int:uid>/flags")
     def flags(uid: int):
-        payload = request.get_json() or {}
+        payload = _json_object()
         view = str(payload.get("view", "inbox"))
         action = str(payload.get("action", ""))
         connection_pool.execute(
@@ -111,17 +154,20 @@ def create_app() -> Flask:
 
     @app.post("/api/messages/mark-all-read")
     def mark_all_read():
-        payload = request.get_json() or {}
+        payload = _json_object()
         view = str(payload.get("view", "inbox"))
+        query = str(payload.get("q", "")).strip()
         count = connection_pool.execute(
             str(payload.get("account", "")) or None,
-            lambda reader: reader.mark_all_read(view),
+            lambda reader: (
+                reader.mark_search_read(query) if query else reader.mark_all_read(view)
+            ),
         )
         return jsonify({"ok": True, "count": count})
 
     @app.post("/api/send")
     def send():
-        payload = request.get_json() or {}
+        payload = _json_object()
         raw_to = str(payload.get("to", ""))
         recipients = [address for _name, address in getaddresses([raw_to]) if address]
         subject = str(payload.get("subject", "")).strip()
@@ -167,10 +213,33 @@ def _valid_email(value: str) -> bool:
     return bool(re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value))
 
 
+def _json_object() -> dict[str, object]:
+    payload = request.get_json()
+    if not isinstance(payload, dict):
+        raise ValueError("JSON 请求体必须是对象")
+    return payload
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.casefold() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def main() -> None:
     app = create_app()
     host = os.getenv("GMAIL_WEB_HOST", "127.0.0.1")
     port = int(os.getenv("GMAIL_WEB_PORT", "5001"))
+    if not _is_loopback_host(host):
+        raise ConfigurationError("GMAIL_WEB_HOST 只允许 localhost 或回环地址")
+    print("Web 登录用户名: gmail", flush=True)
+    if os.getenv("GMAIL_WEB_TOKEN", "").strip():
+        print("Web 登录密码: 使用 .env 中的 GMAIL_WEB_TOKEN", flush=True)
+    else:
+        print(f"Web 登录密码: {app.config['GMAIL_WEB_TOKEN']}", flush=True)
     app.run(host=host, port=port, debug=False)
 
 

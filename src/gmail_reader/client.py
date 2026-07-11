@@ -136,6 +136,41 @@ class GmailReader:
         records = self._fetch_uids([uid])
         return records[0] if records else None
 
+    def search_page(
+        self, query: str, page: int = 1, limit: int = 50
+    ) -> tuple[list[EmailRecord], int]:
+        """Search the complete Gmail archive using Gmail's native query syntax."""
+        query = query.strip()
+        if not query:
+            return [], 0
+        if len(query) > 512:
+            raise ValueError("搜索内容不能超过 512 个字符")
+
+        client = self._require_client()
+        folder = self._find_special_folder("\\All") or self.settings.folder
+        client.select_folder(folder, readonly=True)
+        uids = list(client.search(["X-GM-RAW", query], charset="UTF-8"))
+        total = len(uids)
+        offset = (page - 1) * limit
+        end = max(0, total - offset)
+        start = max(0, end - limit)
+        return self._fetch_summaries(uids[start:end]), total
+
+    def mark_search_read(self, query: str) -> int:
+        query = query.strip()
+        if not query:
+            return 0
+        if len(query) > 512:
+            raise ValueError("搜索内容不能超过 512 个字符")
+
+        client = self._require_client()
+        folder = self._find_special_folder("\\All") or self.settings.folder
+        client.select_folder(folder, readonly=False)
+        uids = list(client.search(["UNSEEN", "X-GM-RAW", query], charset="UTF-8"))
+        if uids:
+            client.add_flags(uids, [b"\\Seen"], silent=True)
+        return len(uids)
+
     def update_flags(self, uid: int, view: str, action: str) -> None:
         client = self._require_client()
         folder, _ = self._resolve_view(view)

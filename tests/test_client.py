@@ -96,3 +96,42 @@ def test_full_messages_are_fetched_in_bounded_batches():
 
     assert len(records) == 12
     assert client.batches == [list(range(1, 6)), list(range(6, 11)), [11, 12]]
+
+
+def test_search_uses_gmail_full_archive_and_paginates():
+    class SearchClient:
+        def __init__(self):
+            self.criteria = None
+            self.selected = None
+
+        def list_folders(self):
+            return [([b"\\All"], b"/", "[Gmail]/All Mail")]
+
+        def select_folder(self, folder, readonly):
+            self.selected = (folder, readonly)
+
+        def search(self, criteria, charset=None):
+            self.criteria = (criteria, charset)
+            return list(range(1, 121))
+
+        def fetch(self, uids, _fields):
+            return {
+                uid: {
+                    b"BODY[HEADER.FIELDS (FROM TO SUBJECT DATE MESSAGE-ID)]": (
+                        f"Subject: result {uid}\r\n\r\n".encode()
+                    ),
+                    b"FLAGS": (),
+                }
+                for uid in uids
+            }
+
+    client = SearchClient()
+    reader = GmailReader(Settings("person@gmail.com", "password"))
+    reader.client = client  # type: ignore[assignment]
+
+    records, total = reader.search_page("Microsoft", page=2, limit=50)
+
+    assert total == 120
+    assert [record.uid for record in records] == list(range(21, 71))
+    assert client.selected == ("[Gmail]/All Mail", True)
+    assert client.criteria == (["X-GM-RAW", "Microsoft"], "UTF-8")

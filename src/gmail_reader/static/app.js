@@ -14,6 +14,7 @@
     hasNext: false,
     messagesController: null,
     detailController: null,
+    searchTimer: null,
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -47,6 +48,20 @@
 
   function accountQuery() {
     return state.account ? `&account=${encodeURIComponent(state.account)}` : '';
+  }
+
+  function activeMessageView() {
+    return state.query.trim() ? 'all' : state.view;
+  }
+
+  function updateSearchUI() {
+    const searching = Boolean(state.query.trim());
+    listPanel.classList.toggle('searching', searching);
+    const icon = $('#searchOptionsButton .material-symbols-outlined');
+    icon.textContent = searching ? 'close' : 'tune';
+    $('#searchOptionsButton').setAttribute(
+      'aria-label', searching ? '清除搜索' : '显示搜索选项',
+    );
   }
 
   function accountInitial(account) {
@@ -260,11 +275,7 @@
   }
 
   function filteredMessages() {
-    const query = state.query.trim().toLocaleLowerCase();
-    if (!query) return state.messages;
-    return state.messages.filter((message) =>
-      [message.sender, message.subject, message.body].some((value) => (value || '').toLocaleLowerCase().includes(query))
-    );
+    return state.messages;
   }
 
   function renderMessages() {
@@ -337,6 +348,14 @@
     }
   }
 
+  function syncMessageRow(message) {
+    const row = messageList.querySelector(`[data-uid="${message.uid}"]`);
+    if (!row) return;
+    row.classList.toggle('unread', !isFlagged(message, '\\Seen'));
+    const star = row.querySelector('.star-button');
+    if (star) star.classList.toggle('starred', isFlagged(message, '\\Flagged'));
+  }
+
   async function loadMessages() {
     if (state.messagesController) state.messagesController.abort();
     const controller = new AbortController();
@@ -354,8 +373,9 @@
       const requestedAccount = state.account;
       const requestedView = state.view;
       const requestedPage = state.page;
+      const requestedQuery = state.query.trim();
       const result = await api(
-        `/api/messages?view=${encodeURIComponent(requestedView)}&limit=${state.pageSize}&page=${requestedPage}&account=${encodeURIComponent(requestedAccount)}`,
+        `/api/messages?view=${encodeURIComponent(requestedView)}&limit=${state.pageSize}&page=${requestedPage}&account=${encodeURIComponent(requestedAccount)}&q=${encodeURIComponent(requestedQuery)}`,
         { signal: controller.signal },
       );
       if (controller.signal.aborted || state.messagesController !== controller) return;
@@ -383,16 +403,18 @@
     try {
       await api(`/api/messages/${message.uid}/flags`, {
         method: 'POST',
-        body: JSON.stringify({ view: state.view, action, account: state.account }),
+        body: JSON.stringify({ view: activeMessageView(), action, account: state.account }),
       });
       message.flags = starred
         ? message.flags.filter((flag) => flag.toLowerCase() !== '\\flagged')
         : [...message.flags, '\\Flagged'];
       if (button) button.classList.toggle('starred', !starred);
-      if (state.view === 'starred' && starred) {
+      if (!state.query.trim() && state.view === 'starred' && starred) {
         state.messages = state.messages.filter((item) => item.uid !== message.uid);
         state.total = Math.max(0, state.total - 1);
         renderMessages();
+      } else {
+        syncMessageRow(message);
       }
     } catch (error) {
       showToast(error.message);
@@ -403,7 +425,8 @@
     if (state.detailController) state.detailController.abort();
     const controller = new AbortController();
     state.detailController = controller;
-    const token = `${state.account}:${state.view}:${message.uid}:${Date.now()}`;
+    const messageView = activeMessageView();
+    const token = `${state.account}:${messageView}:${message.uid}:${Date.now()}`;
     state.detailToken = token;
     state.selected = message;
     $('#detailSubject').textContent = message.subject || '（无主题）';
@@ -426,9 +449,10 @@
 
     if (!isFlagged(message, '\\Seen')) {
       message.flags.push('\\Seen');
+      syncMessageRow(message);
       api(`/api/messages/${message.uid}/flags`, {
         method: 'POST',
-        body: JSON.stringify({ view: state.view, action: 'read', account: state.account }),
+        body: JSON.stringify({ view: messageView, action: 'read', account: state.account }),
       }).catch((error) => showToast(error.message));
     }
 
@@ -439,7 +463,7 @@
 
     try {
       const fullMessage = await api(
-        `/api/messages/${message.uid}?view=${encodeURIComponent(state.view)}${accountQuery()}`,
+        `/api/messages/${message.uid}?view=${encodeURIComponent(messageView)}${accountQuery()}`,
         { signal: controller.signal },
       );
       if (state.detailToken !== token) return;
@@ -465,7 +489,6 @@
     listPanel.classList.remove('hidden');
     state.selected = null;
     state.detailToken = null;
-    renderMessages();
   }
 
   function switchView(view, button) {
@@ -473,6 +496,9 @@
     state.page = 1;
     state.query = '';
     $('#searchInput').value = '';
+    clearTimeout(state.searchTimer);
+    updateSearchUI();
+    state.messages = [];
     $$('.nav-item[data-view]').forEach((item) => item.classList.remove('active'));
     button.classList.add('active');
     closeDetail();
@@ -513,22 +539,59 @@
     closeDetail();
     loadMessages();
   });
-  $('#backButton').addEventListener('click', closeDetail);
+  $('#backButton').addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeDetail();
+  });
   $('#detailStar').addEventListener('click', () => state.selected && toggleStar(state.selected, $('#detailStar')));
   $('#detailUnread').addEventListener('click', async () => {
     if (!state.selected) return;
     try {
       await api(`/api/messages/${state.selected.uid}/flags`, {
-        method: 'POST', body: JSON.stringify({ view: state.view, action: 'unread', account: state.account }),
+        method: 'POST', body: JSON.stringify({ view: activeMessageView(), action: 'unread', account: state.account }),
       });
       state.selected.flags = state.selected.flags.filter((flag) => flag.toLowerCase() !== '\\seen');
+      syncMessageRow(state.selected);
       showToast('已标为未读');
     } catch (error) { showToast(error.message); }
   });
 
+  function submitSearch() {
+    clearTimeout(state.searchTimer);
+    state.page = 1;
+    state.messages = [];
+    updateSearchUI();
+    closeDetail();
+    loadMessages();
+  }
+
   $('#searchInput').addEventListener('input', (event) => {
     state.query = event.target.value;
-    renderMessages();
+    state.page = 1;
+    updateSearchUI();
+    clearTimeout(state.searchTimer);
+    state.searchTimer = setTimeout(submitSearch, 350);
+  });
+  $('#searchInput').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitSearch();
+    } else if (event.key === 'Escape') {
+      state.query = '';
+      event.target.value = '';
+      submitSearch();
+    }
+  });
+  $('#searchButton').addEventListener('click', submitSearch);
+  $('#searchOptionsButton').addEventListener('click', () => {
+    if (!state.query.trim()) {
+      $('#searchInput').focus();
+      return;
+    }
+    state.query = '';
+    $('#searchInput').value = '';
+    submitSearch();
   });
   $('#selectAll').addEventListener('change', (event) => {
     $$('.message-row input[type="checkbox"]').forEach((input) => { input.checked = event.target.checked; });
@@ -552,9 +615,9 @@
     try {
       const result = await api('/api/messages/mark-all-read', {
         method: 'POST',
-        body: JSON.stringify({ view: state.view, account: state.account }),
+        body: JSON.stringify({ view: state.view, q: state.query, account: state.account }),
       });
-      if (state.view === 'unread') {
+      if (!state.query.trim() && state.view === 'unread') {
         state.messages = [];
         state.total = 0;
         state.hasNext = false;

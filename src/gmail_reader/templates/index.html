@@ -26,11 +26,11 @@
     </a>
 
     <div class="search-wrap" role="search">
-      <button class="icon-button search-icon" aria-label="搜索">
+      <button class="icon-button search-icon" id="searchButton" aria-label="搜索">
         <span class="material-symbols-outlined">search</span>
       </button>
       <input id="searchInput" type="search" placeholder="搜索邮件" autocomplete="off">
-      <button class="icon-button filter-button" aria-label="显示搜索选项">
+      <button class="icon-button filter-button" id="searchOptionsButton" aria-label="显示搜索选项">
         <span class="material-symbols-outlined">tune</span>
       </button>
     </div>
@@ -139,7 +139,7 @@
       <section class="mail-panel detail-panel hidden" id="detailPanel">
         <div class="toolbar detail-toolbar">
           <div class="toolbar-left">
-            <button class="icon-button small" id="backButton" aria-label="返回"><span class="material-symbols-outlined">arrow_back</span></button>
+            <button class="icon-button small" id="backButton" type="button" aria-label="返回"><span class="material-symbols-outlined">arrow_back</span></button>
             <button class="icon-button small" aria-label="归档"><span class="material-symbols-outlined">archive</span></button>
             <button class="icon-button small" aria-label="报告垃圾邮件"><span class="material-symbols-outlined">report</span></button>
             <button class="icon-button small" aria-label="删除"><span class="material-symbols-outlined">delete</span></button>
