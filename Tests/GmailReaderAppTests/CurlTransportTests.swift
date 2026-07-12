@@ -28,6 +28,12 @@ final class CurlTransportTests: XCTestCase {
 
         XCTAssertThrowsError(try CurlTransport.decodePage(data, page: 1, pageSize: 50))
     }
+
+    func testParsesGoogleChineseTranslation() throws {
+        let response = Data(#"[[["\u60a8\u597d\uff0c","Hello,",null,null,10],["\u8fd9\u662f\u4e00\u5c01\u90ae\u4ef6。"," this is an email.",null,null,10]],null,"en"]"#.utf8)
+
+        XCTAssertEqual(try CurlTransport.parseTranslation(response), "您好，这是一封邮件。")
+    }
 }
 
 private extension Data {

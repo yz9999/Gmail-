@@ -11,6 +11,9 @@ final class MailboxViewModel: ObservableObject {
     @Published var total = 0
     @Published var isLoading = false
     @Published var isLoadingMessage = false
+    @Published var isTranslating = false
+    @Published var translatedBody: String?
+    @Published var showingTranslation = false
     @Published var errorMessage: String?
     @Published var toastMessage: String?
     @Published var showingCompose = false
@@ -19,10 +22,12 @@ final class MailboxViewModel: ObservableObject {
 
     let pageSize = 50
     private let service = GmailService()
+    private let translationService = GoogleTranslationService()
     private unowned let accounts: AccountStore
     private unowned let preferences: AppPreferences
     private var listTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
+    private var translationTask: Task<Void, Never>?
     private var generation = UUID()
     private var detailRequestID = UUID()
 
@@ -42,8 +47,9 @@ final class MailboxViewModel: ObservableObject {
     func accountChanged() {
         generation = UUID()
         detailRequestID = UUID()
-        listTask?.cancel(); detailTask?.cancel()
+        listTask?.cancel(); detailTask?.cancel(); translationTask?.cancel()
         selectedMessage = nil
+        resetTranslation()
         page = 1
         activeSearch = ""
         searchText = ""
@@ -126,12 +132,14 @@ final class MailboxViewModel: ObservableObject {
 
     func open(_ summary: MailSummary) {
         detailTask?.cancel()
+        translationTask?.cancel()
         guard let account = accounts.selectedAccount else { return }
         let requestGeneration = generation
         let requestID = UUID()
         detailRequestID = requestID
         isLoadingMessage = true
         selectedMessage = nil
+        resetTranslation()
         if !summary.isRead {
             if let index = messages.firstIndex(where: { $0.uid == summary.uid }) { messages[index].isRead = true }
         }
@@ -159,9 +167,51 @@ final class MailboxViewModel: ObservableObject {
 
     func closeMessage() {
         detailTask?.cancel()
+        translationTask?.cancel()
         detailRequestID = UUID()
         selectedMessage = nil
         isLoadingMessage = false
+        resetTranslation()
+    }
+
+    func translateCurrentMessage() {
+        guard let message = selectedMessage, let account = accounts.selectedAccount else { return }
+        if translatedBody != nil {
+            showingTranslation = true
+            return
+        }
+        translationTask?.cancel()
+        let requestID = detailRequestID
+        let cacheKey = "\(account.id.uuidString)|\(message.messageID)|\(message.uid)"
+        isTranslating = true
+        translationTask = Task {
+            do {
+                let translated = try await translationService.translateToChinese(
+                    message.plainBody,
+                    cacheKey: cacheKey,
+                    proxy: preferences.proxy
+                )
+                try Task.checkCancellation()
+                guard requestID == detailRequestID, selectedMessage?.uid == message.uid else { return }
+                translatedBody = translated
+                showingTranslation = true
+            } catch is CancellationError {
+                return
+            } catch {
+                guard requestID == detailRequestID else { return }
+                errorMessage = error.localizedDescription
+            }
+            if requestID == detailRequestID { isTranslating = false }
+        }
+    }
+
+    func showOriginalMessage() {
+        showingTranslation = false
+    }
+
+    func showTranslatedMessage() {
+        guard translatedBody != nil else { translateCurrentMessage(); return }
+        showingTranslation = true
     }
 
     func toggleStar(uid: UInt64) {
@@ -238,6 +288,12 @@ final class MailboxViewModel: ObservableObject {
 
     private func makeCredentials(_ account: MailAccount) throws -> GmailCredentials {
         GmailCredentials(address: account.address, password: try accounts.password(for: account), proxy: preferences.proxy)
+    }
+
+    private func resetTranslation() {
+        isTranslating = false
+        translatedBody = nil
+        showingTranslation = false
     }
 
     private func toast(_ message: String) {

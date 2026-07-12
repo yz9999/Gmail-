@@ -274,8 +274,21 @@ private struct MessageDetailView: View {
                         }
                         Spacer()
                         Text(message.dateText).font(.system(size: 11)).foregroundColor(.secondary).textSelection(.enabled)
-                    }.padding(.horizontal, 28).padding(.bottom, 18)
-                    if !message.htmlBody.isEmpty {
+                    }.padding(.horizontal, 28).padding(.bottom, 12)
+                    translationBar
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 14)
+                    if model.showingTranslation, let translated = model.translatedBody {
+                        ScrollView {
+                            Text(translated)
+                                .font(.system(size: 14))
+                                .lineSpacing(4)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                                .padding(.horizontal, 28)
+                                .padding(.bottom, 30)
+                        }
+                    } else if !message.htmlBody.isEmpty {
                         HTMLWebView(html: message.htmlBody).padding(.horizontal, 28).padding(.bottom, 18)
                     } else {
                         ScrollView {
@@ -287,6 +300,40 @@ private struct MessageDetailView: View {
             }
         }
         .background(Color.white).cornerRadius(14).padding(.trailing, 12).padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private var translationBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "character.book.closed")
+                .foregroundColor(Color(red: 0.16, green: 0.42, blue: 0.82))
+            if model.isTranslating {
+                ProgressView().controlSize(.small)
+                Text("正在翻译成中文…")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            } else if model.translatedBody != nil {
+                Text("由 Google 翻译")
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                if model.showingTranslation {
+                    Button("显示原文") { model.showOriginalMessage() }
+                } else {
+                    Button("显示译文") { model.showTranslatedMessage() }
+                }
+            } else {
+                Button("翻译成中文") { model.translateCurrentMessage() }
+                    .buttonStyle(.link)
+                Spacer()
+                Text("使用 Google 翻译")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 38)
+        .background(Color(red: 0.94, green: 0.96, blue: 0.99))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
