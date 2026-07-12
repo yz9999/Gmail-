@@ -20,6 +20,9 @@
 - TLS 主机名和系统证书链验证
 - 列表搜索与 50 封摘要在同一条 TLS/IMAP 连接中完成
 - 短时 UID/摘要缓存，翻页和重复搜索无需再扫描整个邮箱
+- 收件箱摘要持久缓存，启动时先立即显示上次列表并在后台刷新
+- 已打开邮件正文内存缓存，重复打开无需再次下载
+- 翻译请求限速、跨邮件文本缓存以及 HTTP 429 指数退避重试
 
 ## 系统要求
 
@@ -117,6 +120,7 @@ Sources/
     ├── CurlTransport.swift
     ├── MailTranslationService.swift
     ├── HTMLTranslationDocument.swift
+    ├── MailboxSnapshotStore.swift
     ├── MIMEParser.swift
     ├── MailboxViewModel.swift
     ├── HTMLWebView.swift

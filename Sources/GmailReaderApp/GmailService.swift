@@ -7,6 +7,7 @@ actor GmailService {
     private var folderPrefetching: Set<String> = []
     private var listCache: [ListCacheKey: ListCacheEntry] = [:]
     private var summaryCache: [SummaryCacheKey: MailSummary] = [:]
+    private var messageCache: [MessageCacheKey: MessageCacheEntry] = [:]
 
     private struct ListCacheKey: Hashable {
         let address: String
@@ -25,6 +26,17 @@ actor GmailService {
         let address: String
         let folder: String
         let uid: UInt64
+    }
+
+    private struct MessageCacheKey: Hashable {
+        let address: String
+        let folder: String
+        let uid: UInt64
+    }
+
+    private struct MessageCacheEntry {
+        var message: MailMessage
+        var lastAccessed: Date
     }
 
     func verify(credentials: GmailCredentials) async throws {
@@ -80,8 +92,7 @@ actor GmailService {
     }
 
     func message(uid: UInt64, kind: MailboxKind, query: String?, credentials: GmailCredentials) async throws -> MailMessage {
-        let folders = try await folders(credentials: credentials)
-        let folder = (query?.isEmpty == false) ? (folders[.all] ?? "INBOX") : resolveFolder(kind, folders: folders)
+        let folder = try await folderForMessage(kind: kind, query: query, credentials: credentials)
         let encoded = encodeMailbox(folder)
         let cacheKey = SummaryCacheKey(address: credentials.address, folder: folder, uid: uid)
         let flags: Set<String>
@@ -90,14 +101,24 @@ actor GmailService {
         } else {
             flags = try await self.flags(for: [uid], folder: folder, credentials: credentials)[uid] ?? []
         }
+        let messageKey = MessageCacheKey(address: credentials.address, folder: folder, uid: uid)
+        if var cached = messageCache[messageKey] {
+            cached.message.isRead = flags.contains("\\Seen")
+            cached.message.isStarred = flags.contains("\\Flagged")
+            cached.lastAccessed = Date()
+            messageCache[messageKey] = cached
+            return cached.message
+        }
         let raw = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encoded);UID=\(uid)", credentials: credentials, timeout: 90)
-        return MIMEParser.message(uid: uid, raw: raw, flags: flags)
+        let message = MIMEParser.message(uid: uid, raw: raw, flags: flags)
+        messageCache[messageKey] = MessageCacheEntry(message: message, lastAccessed: Date())
+        trimCaches()
+        return message
     }
 
     func setFlag(uid: UInt64, kind: MailboxKind, query: String?, flag: String, enabled: Bool,
                  credentials: GmailCredentials) async throws {
-        let folders = try await folders(credentials: credentials)
-        let folder = (query?.isEmpty == false) ? (folders[.all] ?? "INBOX") : resolveFolder(kind, folders: folders)
+        let folder = try await folderForMessage(kind: kind, query: query, credentials: credentials)
         let operation = enabled ? "+FLAGS.SILENT" : "-FLAGS.SILENT"
         _ = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encodeMailbox(folder))", credentials: credentials,
                                         command: "UID STORE \(uid) \(operation) (\(flag))")
@@ -235,6 +256,13 @@ actor GmailService {
         if flag.caseInsensitiveCompare("\\Seen") == .orderedSame { summary.isRead = enabled }
         if flag.caseInsensitiveCompare("\\Flagged") == .orderedSame { summary.isStarred = enabled }
         summaryCache[key] = summary
+        let messageKey = MessageCacheKey(address: address, folder: folder, uid: uid)
+        if var cached = messageCache[messageKey] {
+            if flag.caseInsensitiveCompare("\\Seen") == .orderedSame { cached.message.isRead = enabled }
+            if flag.caseInsensitiveCompare("\\Flagged") == .orderedSame { cached.message.isStarred = enabled }
+            cached.lastAccessed = Date()
+            messageCache[messageKey] = cached
+        }
     }
 
     private func trimCaches() {
@@ -247,6 +275,11 @@ actor GmailService {
                 item.value.uids.map { SummaryCacheKey(address: item.key.address, folder: item.key.folder, uid: $0) }
             }.suffix(5_000))
             for key in Array(summaryCache.keys) where !retained.contains(key) { summaryCache.removeValue(forKey: key) }
+        }
+        if messageCache.count > 24 {
+            let oldest = messageCache.sorted { $0.value.lastAccessed < $1.value.lastAccessed }
+                .prefix(messageCache.count - 24)
+            for (key, _) in oldest { messageCache.removeValue(forKey: key) }
         }
     }
 
@@ -264,6 +297,18 @@ actor GmailService {
             _ = try? await folders(credentials: credentials)
             folderPrefetching.remove(credentials.address)
         }
+    }
+
+    private func folderForMessage(kind: MailboxKind, query: String?,
+                                  credentials: GmailCredentials) async throws -> String {
+        if query?.isEmpty == false {
+            return try await folders(credentials: credentials)[.all] ?? "INBOX"
+        }
+        if kind == .inbox || kind == .unread {
+            prefetchFolders(credentials: credentials)
+            return "INBOX"
+        }
+        return resolveFolder(kind, folders: try await folders(credentials: credentials))
     }
 
     private func flags(for uids: [UInt64], folder: String, credentials: GmailCredentials) async throws -> [UInt64: Set<String>] {

@@ -35,6 +35,7 @@ final class MailboxViewModel: ObservableObject {
     init(accounts: AccountStore, preferences: AppPreferences) {
         self.accounts = accounts
         self.preferences = preferences
+        restoreInboxSnapshot()
     }
 
     var pageCount: Int { max(1, Int(ceil(Double(total) / Double(pageSize)))) }
@@ -55,6 +56,9 @@ final class MailboxViewModel: ObservableObject {
         page = 1
         activeSearch = ""
         searchText = ""
+        messages = []
+        total = 0
+        restoreInboxSnapshot()
         reload()
     }
 
@@ -120,6 +124,9 @@ final class MailboxViewModel: ObservableObject {
                       requestedMailbox == mailbox, requestedPage == page, requestedQuery == activeSearch else { return }
                 messages = result.messages
                 total = result.total
+                if requestedMailbox == .inbox, requestedPage == 1, requestedQuery.isEmpty {
+                    MailboxSnapshotStore.save(accountID: account.id, page: result)
+                }
                 if page > pageCount { page = pageCount; reload(); return }
             } catch is CancellationError {
                 return
@@ -138,6 +145,8 @@ final class MailboxViewModel: ObservableObject {
         guard let account = accounts.selectedAccount else { return }
         let requestGeneration = generation
         let requestID = UUID()
+        let requestedMailbox = mailbox
+        let requestedQuery = activeSearch
         detailRequestID = requestID
         isLoadingMessage = true
         selectedMessage = nil
@@ -148,14 +157,28 @@ final class MailboxViewModel: ObservableObject {
         detailTask = Task {
             do {
                 let credentials = try makeCredentials(account)
-                if !summary.isRead {
-                    try await service.setFlag(uid: summary.uid, kind: mailbox, query: activeSearch, flag: "\\Seen", enabled: true,
-                                              credentials: credentials)
-                }
-                let message = try await service.message(uid: summary.uid, kind: mailbox, query: activeSearch, credentials: credentials)
+                let message = try await service.message(
+                    uid: summary.uid,
+                    kind: requestedMailbox,
+                    query: requestedQuery,
+                    credentials: credentials
+                )
                 try Task.checkCancellation()
                 guard requestGeneration == generation, accounts.selectedAccountID == account.id else { return }
                 selectedMessage = message
+                isLoadingMessage = false
+                if !summary.isRead {
+                    Task(priority: .utility) {
+                        try? await service.setFlag(
+                            uid: summary.uid,
+                            kind: requestedMailbox,
+                            query: requestedQuery,
+                            flag: "\\Seen",
+                            enabled: true,
+                            credentials: credentials
+                        )
+                    }
+                }
             } catch is CancellationError {
                 return
             } catch {
@@ -295,6 +318,14 @@ final class MailboxViewModel: ObservableObject {
 
     private func makeCredentials(_ account: MailAccount) throws -> GmailCredentials {
         GmailCredentials(address: account.address, password: try accounts.password(for: account), proxy: preferences.proxy)
+    }
+
+    private func restoreInboxSnapshot() {
+        guard mailbox == .inbox, page == 1, activeSearch.isEmpty,
+              let account = accounts.selectedAccount,
+              let snapshot = MailboxSnapshotStore.load(accountID: account.id) else { return }
+        messages = snapshot.messages
+        total = snapshot.total
     }
 
     private func resetTranslation() {
