@@ -766,65 +766,6 @@ GRResult gr_smtp_send(
     return result;
 }
 
-GRResult gr_http_post(
-    const char *url,
-    const unsigned char *body,
-    size_t body_length,
-    const char *content_type,
-    const char *proxy_host,
-    int proxy_port,
-    long timeout_seconds
-) {
-    if (!url || !body || !content_type || body_length > GR_MAX_IMAP_RESPONSE) {
-        return failure("Invalid HTTPS POST arguments", CURLE_BAD_FUNCTION_ARGUMENT);
-    }
-    CURL *curl = curl_easy_init();
-    if (!curl) return failure("Unable to create libcurl handle", CURLE_FAILED_INIT);
-
-    Buffer response = {0};
-    char error_buffer[CURL_ERROR_SIZE] = {0};
-    configure_common(curl, &response, NULL, NULL, proxy_host, proxy_port, timeout_seconds, error_buffer);
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)body_length);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
-
-    struct curl_slist *headers = NULL;
-    size_t header_length = strlen(content_type) + 32;
-    char *header = malloc(header_length);
-    if (!header) {
-        curl_easy_cleanup(curl);
-        return failure("Out of memory", CURLE_OUT_OF_MEMORY);
-    }
-    snprintf(header, header_length, "Content-Type: %s", content_type);
-    headers = curl_slist_append(headers, header);
-    free(header);
-    if (!headers) {
-        curl_easy_cleanup(curl);
-        return failure("Out of memory", CURLE_OUT_OF_MEMORY);
-    }
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-    CURLcode code = curl_easy_perform(curl);
-    long http_status = 0;
-    if (code == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-    if (code != CURLE_OK) {
-        free(response.bytes);
-        return failure(error_buffer[0] ? error_buffer : curl_easy_strerror(code), code);
-    }
-    if (http_status < 200 || http_status >= 300) {
-        char message[96];
-        snprintf(message, sizeof(message), "Google Translate returned HTTP %ld", http_status);
-        free(response.bytes);
-        return failure(message, http_status);
-    }
-    GRResult result = {response.bytes, response.length, NULL, http_status};
-    return result;
-}
-
 void gr_result_free(GRResult result) {
     free(result.data);
     free(result.error);

@@ -76,4 +76,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Gmail Reader macOS ${GITHUB_REF_NAME#macos-v}" \
             --generate-notes \
-            --notes "macOS 原生 Universal 2 应用构建产物，使用临时签名。本版本仅翻译 HTML 邮件的可见文字节点，完整保留原始标签、CSS、表格、图片、按钮和链接排版，并修复复杂营销邮件提示“未能安全保留邮件排版”的问题。"
+            --notes "macOS 原生 Universal 2 应用构建产物，使用临时签名。本版本移除会触发 HTTP 302/429 的非公开 Google Translate 请求，改为按 Message-ID 在 Gmail 中定位原邮件并使用 Gmail 账号内置的原生中文翻译。"

@@ -12,7 +12,7 @@
 - 每页 50 封邮件，可前后翻页
 - 使用 Gmail `X-GM-RAW` 搜索整个邮箱，支持中文搜索
 - HTML 邮件通过禁用 JavaScript 的 `WKWebView` 显示
-- 邮件正文可使用 Google 翻译转为简体中文，保留 HTML 表格、图片、按钮和链接排版，并可随时切换原文/译文
+- 可按 RFC 822 Message-ID 在 Gmail 网页中精确定位当前邮件，使用 Gmail 账号内置的原生中文翻译
 - 标记已读/未读、星标、全部标记为已读
 - 通过 Gmail SMTPS 写信
 - 切换账号时取消旧任务，并用请求代次检查避免串号
@@ -27,6 +27,7 @@
 - Swift 5.9 或 Xcode 15
 - Gmail 已开启两步验证并生成 16 位应用专用密码
 - 网络需能直接访问 Gmail；若当前网络不支持，可在设置中启用 SOCKS5 代理
+- 使用原生翻译时，默认浏览器需已登录对应 Gmail 账号
 
 ## 构建
 
@@ -93,7 +94,7 @@ UID SEARCH CHARSET UTF-8 X-GM-RAW {字节数}
 
 这样不会依赖会返回 Fake-IP 的本机 DNS，也不会关闭证书验证。
 
-邮件翻译使用 Google 翻译的 HTTPS 服务，目标语言固定为简体中文。HTML 邮件会先在本地拆分，只把可见文字节点分批送去翻译；`head`、标签名、属性、CSS、表格、图片和 URL 始终逐字复用原文，不会交给翻译接口。接口偶尔改写某个边界标记时，应用会只对该节点执行一次安全的纯文本批量回退；仍无法识别的小段保留原文，不会中断整封邮件或破坏排版。纯文本长邮件会自动分段。译文会在内存中缓存，连接会遵循应用的直连/SOCKS5 设置。
+Gmail 的原生邮件翻译没有 Gmail API 或 IMAP 命令，只在已登录的 Gmail 网页中提供。应用不再请求会触发 HTTP 302/429 限流的非公开 Google Translate 接口。“在 Gmail 中翻译成中文”会使用当前邮件的 `Message-ID` 构造 Gmail 精确搜索链接，通过默认浏览器在对应账号中定位原邮件；打开邮件后由 Gmail 自己完成翻译。应用不会读取或保存浏览器 Cookie。
 
 ## 测试
 
@@ -115,8 +116,7 @@ Sources/
     ├── KeychainStore.swift
     ├── GmailService.swift
     ├── CurlTransport.swift
-    ├── GoogleTranslationService.swift
-    ├── HTMLTranslationDocument.swift
+    ├── GmailWebLink.swift
     ├── MIMEParser.swift
     ├── MailboxViewModel.swift
     ├── HTMLWebView.swift

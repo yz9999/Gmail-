@@ -128,26 +128,6 @@ enum CurlTransport {
         }.value
     }
 
-    static func translateToChinese(_ text: String, proxy: ProxySettings) async throws -> String {
-        let encoded = formEncode(text)
-        let body = Data("client=gtx&sl=auto&tl=zh-CN&dt=t&q=\(encoded)".utf8)
-        let response = try await Task.detached(priority: .userInitiated) {
-            guard initialized else { throw GmailReaderError.network("无法初始化系统网络库") }
-            let url = try duplicate("https://translate.googleapis.com/translate_a/single")
-            let contentType = try duplicate("application/x-www-form-urlencoded; charset=UTF-8")
-            let proxyHost = proxy.enabled ? try duplicate(proxy.host) : nil
-            defer { free(url); free(contentType); free(proxyHost) }
-            return try body.withUnsafeBytes { bytes in
-                let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
-                guard let pointer else { throw GmailReaderError.configuration("没有可翻译的邮件正文") }
-                let result = gr_http_post(url, pointer, body.count, contentType, proxyHost,
-                                          proxy.enabled ? Int32(proxy.port) : 0, 30)
-                return try consumeTranslation(result, usingProxy: proxy.enabled)
-            }
-        }.value
-        return try parseTranslation(response)
-    }
-
     private static func duplicate(_ value: String) throws -> UnsafeMutablePointer<CChar> {
         guard let pointer = strdup(value) else { throw GmailReaderError.network("内存不足") }
         return pointer
@@ -180,39 +160,6 @@ enum CurlTransport {
             throw GmailReaderError.network("Gmail 返回了无效数据")
         }
         return result.length == 0 ? Data() : Data(bytes: result.data!, count: result.length)
-    }
-
-    private static func consumeTranslation(_ result: GRResult, usingProxy: Bool) throws -> Data {
-        defer { gr_result_free(result) }
-        if let error = result.error {
-            let raw = String(cString: error)
-            let prefix = usingProxy ? "无法通过 SOCKS5 代理访问 Google 翻译" : "无法访问 Google 翻译"
-            throw GmailReaderError.network("\(prefix)：\(raw)")
-        }
-        guard result.length > 0, let data = result.data else {
-            throw GmailReaderError.network("Google 翻译未返回内容")
-        }
-        return Data(bytes: data, count: result.length)
-    }
-
-    static func parseTranslation(_ data: Data) throws -> String {
-        guard let root = try JSONSerialization.jsonObject(with: data) as? [Any],
-              let segments = root.first as? [Any] else {
-            throw GmailReaderError.protocolError("Google 翻译返回了无效数据")
-        }
-        let translated = segments.compactMap { item -> String? in
-            guard let values = item as? [Any], let value = values.first as? String else { return nil }
-            return value
-        }.joined()
-        guard !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw GmailReaderError.protocolError("Google 翻译未返回译文")
-        }
-        return translated
-    }
-
-    private static func formEncode(_ value: String) -> String {
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
     static func decodePage(_ data: Data, page: Int, pageSize: Int) throws -> PagePayload {
