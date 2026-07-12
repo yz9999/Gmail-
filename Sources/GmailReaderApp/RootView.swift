@@ -278,7 +278,9 @@ private struct MessageDetailView: View {
                     translationBar
                         .padding(.horizontal, 28)
                         .padding(.bottom, 14)
-                    if model.showingTranslation, let translated = model.translatedBody {
+                    if model.showingTranslation, let translatedHTML = model.translatedHTML {
+                        HTMLWebView(html: translatedHTML).padding(.horizontal, 28).padding(.bottom, 18)
+                    } else if model.showingTranslation, let translated = model.translatedBody {
                         ScrollView {
                             Text(translated)
                                 .font(.system(size: 14))
@@ -312,7 +314,7 @@ private struct MessageDetailView: View {
                 Text("正在翻译成中文…")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
-            } else if model.translatedBody != nil {
+            } else if model.hasTranslation {
                 Text("由 Google 翻译")
                     .font(.system(size: 12, weight: .medium))
                 Spacer()

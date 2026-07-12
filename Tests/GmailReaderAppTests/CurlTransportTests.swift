@@ -34,6 +34,15 @@ final class CurlTransportTests: XCTestCase {
 
         XCTAssertEqual(try CurlTransport.parseTranslation(response), "您好，这是一封邮件。")
     }
+
+    func testPreservesTranslatedHTMLLayout() throws {
+        let response = Data(#"[[["<table><tr><td><h2>Mac 上的新登录</h2><a href=\"https://example.com\">检查活动</a></td></tr></table>","<table>...</table>",null,null,10]],null,"en"]"#.utf8)
+
+        let translated = try CurlTransport.parseTranslation(response)
+        XCTAssertTrue(translated.contains("<table>"))
+        XCTAssertTrue(translated.contains("<h2>Mac 上的新登录</h2>"))
+        XCTAssertTrue(translated.contains("href=\"https://example.com\""))
+    }
 }
 
 private extension Data {

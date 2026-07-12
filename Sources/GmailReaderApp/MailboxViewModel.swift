@@ -13,6 +13,7 @@ final class MailboxViewModel: ObservableObject {
     @Published var isLoadingMessage = false
     @Published var isTranslating = false
     @Published var translatedBody: String?
+    @Published var translatedHTML: String?
     @Published var showingTranslation = false
     @Published var errorMessage: String?
     @Published var toastMessage: String?
@@ -37,6 +38,7 @@ final class MailboxViewModel: ObservableObject {
     }
 
     var pageCount: Int { max(1, Int(ceil(Double(total) / Double(pageSize)))) }
+    var hasTranslation: Bool { translatedBody != nil || translatedHTML != nil }
     var rangeText: String {
         guard total > 0 else { return "0 封" }
         let start = (page - 1) * pageSize + 1
@@ -176,7 +178,7 @@ final class MailboxViewModel: ObservableObject {
 
     func translateCurrentMessage() {
         guard let message = selectedMessage, let account = accounts.selectedAccount else { return }
-        if translatedBody != nil {
+        if hasTranslation {
             showingTranslation = true
             return
         }
@@ -187,13 +189,18 @@ final class MailboxViewModel: ObservableObject {
         translationTask = Task {
             do {
                 let translated = try await translationService.translateToChinese(
-                    message.plainBody,
+                    plainBody: message.plainBody,
+                    htmlBody: message.htmlBody,
                     cacheKey: cacheKey,
                     proxy: preferences.proxy
                 )
                 try Task.checkCancellation()
                 guard requestID == detailRequestID, selectedMessage?.uid == message.uid else { return }
-                translatedBody = translated
+                if translated.isHTML {
+                    translatedHTML = translated.content
+                } else {
+                    translatedBody = translated.content
+                }
                 showingTranslation = true
             } catch is CancellationError {
                 return
@@ -210,7 +217,7 @@ final class MailboxViewModel: ObservableObject {
     }
 
     func showTranslatedMessage() {
-        guard translatedBody != nil else { translateCurrentMessage(); return }
+        guard hasTranslation else { translateCurrentMessage(); return }
         showingTranslation = true
     }
 
@@ -293,6 +300,7 @@ final class MailboxViewModel: ObservableObject {
     private func resetTranslation() {
         isTranslating = false
         translatedBody = nil
+        translatedHTML = nil
         showingTranslation = false
     }
 
