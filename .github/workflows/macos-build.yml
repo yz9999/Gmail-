@@ -76,4 +76,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Gmail Reader macOS ${GITHUB_REF_NAME#macos-v}" \
             --generate-notes \
-            --notes "macOS 原生应用构建产物，使用临时签名。修复无代理直连 TLS，并优化邮件列表与搜索速度。"
+            --notes "macOS 原生 Universal 2 应用构建产物，使用临时签名。本版本仅翻译 HTML 邮件的可见文字节点，完整保留原始标签、CSS、表格、图片、按钮和链接排版。"

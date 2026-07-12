@@ -93,7 +93,7 @@ UID SEARCH CHARSET UTF-8 X-GM-RAW {字节数}
 
 这样不会依赖会返回 Fake-IP 的本机 DNS，也不会关闭证书验证。
 
-邮件翻译使用 Google 翻译的 HTTPS 服务，目标语言固定为简体中文。HTML 邮件会作为完整 DOM 翻译，保留原始样式、表格、图片和链接；纯文本长邮件才会自动分段。译文会在内存中缓存，连接会遵循应用的直连/SOCKS5 设置。
+邮件翻译使用 Google 翻译的 HTTPS 服务，目标语言固定为简体中文。HTML 邮件会先在本地拆分，只把可见文字节点分批送去翻译；`head`、标签名、属性、CSS、表格、图片和 URL 始终逐字复用原文，不会交给翻译接口。纯文本长邮件会自动分段。译文会在内存中缓存，连接会遵循应用的直连/SOCKS5 设置。
 
 ## 测试
 
@@ -115,6 +115,8 @@ Sources/
     ├── KeychainStore.swift
     ├── GmailService.swift
     ├── CurlTransport.swift
+    ├── GoogleTranslationService.swift
+    ├── HTMLTranslationDocument.swift
     ├── MIMEParser.swift
     ├── MailboxViewModel.swift
     ├── HTMLWebView.swift

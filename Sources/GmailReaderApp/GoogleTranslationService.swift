@@ -16,10 +16,18 @@ actor GoogleTranslationService {
         let html = htmlBody.trimmingCharacters(in: .whitespacesAndNewlines)
         let result: Result
         if !html.isEmpty, html.count <= 300_000 {
-            // Google 翻译会保留 HTML 标签、表格、图片与链接属性，
-            // 整体发送可避免分段破坏邮件 DOM 结构。
-            let translated = try await CurlTransport.translateToChinese(html, proxy: proxy)
-            result = Result(content: translated, isHTML: true)
+            let document = HTMLTranslationDocument(html: htmlBody)
+            guard !document.units.isEmpty else {
+                throw GmailReaderError.configuration("这封邮件没有可翻译的文字正文")
+            }
+            var translations: [Int: String] = [:]
+            for batch in document.batches() {
+                try Task.checkCancellation()
+                let values = try await translate(batch, proxy: proxy)
+                translations.merge(values) { _, new in new }
+            }
+            // render 逐字复用原邮件的所有标签、属性、CSS、URL 和图片，只替换文本节点。
+            result = Result(content: document.render(translations: translations), isHTML: true)
         } else {
             let source = plainBody.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !source.isEmpty else { throw GmailReaderError.configuration("这封邮件没有可翻译的文字正文") }
@@ -36,6 +44,27 @@ actor GoogleTranslationService {
         cacheOrder.append(cacheKey)
         while cacheOrder.count > 30 {
             cache.removeValue(forKey: cacheOrder.removeFirst())
+        }
+        return result
+    }
+
+    private func translate(_ batch: [HTMLTranslationDocument.Unit],
+                           proxy: ProxySettings) async throws -> [Int: String] {
+        let request = HTMLTranslationDocument.requestHTML(for: batch)
+        let response = try await CurlTransport.translateToChinese(request, proxy: proxy)
+        if let parsed = HTMLTranslationDocument.parseResponse(response, expected: batch) { return parsed }
+
+        // 极少数情况下 Google 会合并相邻片段；改为逐节点重试，仍然绝不发送原始 HTML。
+        var result: [Int: String] = [:]
+        for unit in batch {
+            try Task.checkCancellation()
+            let singleRequest = HTMLTranslationDocument.requestHTML(for: [unit])
+            let singleResponse = try await CurlTransport.translateToChinese(singleRequest, proxy: proxy)
+            guard let parsed = HTMLTranslationDocument.parseResponse(singleResponse, expected: [unit]),
+                  let value = parsed[unit.id] else {
+                throw GmailReaderError.protocolError("Google 翻译未能安全保留邮件排版，请稍后重试")
+            }
+            result[unit.id] = value
         }
         return result
     }

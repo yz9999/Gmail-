@@ -35,13 +35,53 @@ final class CurlTransportTests: XCTestCase {
         XCTAssertEqual(try CurlTransport.parseTranslation(response), "您好，这是一封邮件。")
     }
 
-    func testPreservesTranslatedHTMLLayout() throws {
-        let response = Data(#"[[["<table><tr><td><h2>Mac 上的新登录</h2><a href=\"https://example.com\">检查活动</a></td></tr></table>","<table>...</table>",null,null,10]],null,"en"]"#.utf8)
+    func testTranslatesOnlyVisibleHTMLTextNodes() throws {
+        let html = #"""
+        <!DOCTYPE html><html lang="en"><head><title>Never translate this</title>
+        <meta name="viewport" content="width=device-width"><style>.button > a { color: #fff; }</style></head>
+        <body><table width="100%" style="border-collapse:collapse"><tr><td>
+        <h2>New sign-in on Mac</h2><a class="button" href="https://accounts.google.com/check?a=1&amp;b=2">Check activity</a>
+        <img src="https://example.com/pixel?q=hello" alt="Original alt text"></td></tr></table></body></html>
+        """#
+        let document = HTMLTranslationDocument(html: html)
 
-        let translated = try CurlTransport.parseTranslation(response)
-        XCTAssertTrue(translated.contains("<table>"))
+        XCTAssertEqual(document.units.map(\.source), ["New sign-in on Mac", "Check activity"])
+        let translated = document.render(translations: [
+            document.units[0].id: "Mac 上的新登录",
+            document.units[1].id: "检查活动",
+        ])
+
+        XCTAssertTrue(translated.contains("<head><title>Never translate this</title>"))
+        XCTAssertTrue(translated.contains(#"<meta name="viewport" content="width=device-width">"#))
+        XCTAssertTrue(translated.contains(".button > a { color: #fff; }"))
+        XCTAssertTrue(translated.contains(#"<table width="100%" style="border-collapse:collapse">"#))
+        XCTAssertTrue(translated.contains(#"href="https://accounts.google.com/check?a=1&amp;b=2""#))
+        XCTAssertTrue(translated.contains(#"src="https://example.com/pixel?q=hello" alt="Original alt text""#))
         XCTAssertTrue(translated.contains("<h2>Mac 上的新登录</h2>"))
-        XCTAssertTrue(translated.contains("href=\"https://example.com\""))
+        XCTAssertTrue(translated.contains(">检查活动</a>"))
+    }
+
+    func testParsesBatchedTextWhilePreservingEntities() throws {
+        let html = #"<table><tr><td>Hello&nbsp;world &amp; friends</td><td>Shop now</td></tr></table>"#
+        let document = HTMLTranslationDocument(html: html)
+        let request = HTMLTranslationDocument.requestHTML(for: document.units)
+        XCTAssertFalse(request.contains("<table>"))
+        XCTAssertFalse(request.contains("&nbsp;"))
+        XCTAssertTrue(request.contains("data-gr-marker"))
+
+        let firstID = document.units[0].id
+        let secondID = document.units[1].id
+        let response = #"<div data-gr-unit="\#(firstID)">你好<span data-gr-marker="0"></span>世界<span data-gr-marker="1"></span>朋友</div><div data-gr-unit="\#(secondID)">立即购买</div>"#
+        let parsed = try XCTUnwrap(HTMLTranslationDocument.parseResponse(response, expected: document.units))
+        let translated = document.render(translations: parsed)
+
+        XCTAssertEqual(translated, #"<table><tr><td>你好&nbsp;世界&amp;朋友</td><td>立即购买</td></tr></table>"#)
+    }
+
+    func testRejectsTranslationWhenGoogleChangesGeneratedWrappers() {
+        let document = HTMLTranslationDocument(html: "<p>Hello</p>")
+        let response = #"<分区 data-gr-unit="0">你好</分区>"#
+        XCTAssertNil(HTMLTranslationDocument.parseResponse(response, expected: document.units))
     }
 }
 
