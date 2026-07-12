@@ -12,7 +12,7 @@
 - 每页 50 封邮件，可前后翻页
 - 使用 Gmail `X-GM-RAW` 搜索整个邮箱，支持中文搜索
 - HTML 邮件通过禁用 JavaScript 的 `WKWebView` 显示
-- 可按 RFC 822 Message-ID 在 Gmail 网页中精确定位当前邮件，使用 Gmail 账号内置的原生中文翻译
+- Gmail 风格的应用内中文翻译，仅替换可见文字节点，原始 HTML、CSS、图片、按钮和链接完全不变
 - 标记已读/未读、星标、全部标记为已读
 - 通过 Gmail SMTPS 写信
 - 切换账号时取消旧任务，并用请求代次检查避免串号
@@ -27,7 +27,6 @@
 - Swift 5.9 或 Xcode 15
 - Gmail 已开启两步验证并生成 16 位应用专用密码
 - 网络需能直接访问 Gmail；若当前网络不支持，可在设置中启用 SOCKS5 代理
-- 使用原生翻译时，默认浏览器需已登录对应 Gmail 账号
 
 ## 构建
 
@@ -94,7 +93,7 @@ UID SEARCH CHARSET UTF-8 X-GM-RAW {字节数}
 
 这样不会依赖会返回 Fake-IP 的本机 DNS，也不会关闭证书验证。
 
-Gmail 的原生邮件翻译没有 Gmail API 或 IMAP 命令，只在已登录的 Gmail 网页中提供。应用不再请求会触发 HTTP 302/429 限流的非公开 Google Translate 接口。“在 Gmail 中翻译成中文”会使用当前邮件的 `Message-ID` 构造 Gmail 精确搜索链接，通过默认浏览器在对应账号中定位原邮件；打开邮件后由 Gmail 自己完成翻译。应用不会读取或保存浏览器 Cookie。
+Gmail 的原生翻译没有可供应用专用密码调用的 Gmail API 或 IMAP 命令。为了保持多账号免网页登录，应用实现了同样的原文/译文切换体验，并使用 Microsoft Edge 的邮件翻译服务批量翻译纯文本节点。邮件标签、属性、CSS、URL 和图片从不发送给翻译服务；返回的译文会经过 HTML 文本消毒，裸露的 `&`、`<`、`>` 会被转义，合法实体才会保留，因此无法注入标签或改变 DOM 排版。翻译令牌为短期匿名令牌，与 Gmail 账号和应用专用密码无关。
 
 ## 测试
 
@@ -116,7 +115,8 @@ Sources/
     ├── KeychainStore.swift
     ├── GmailService.swift
     ├── CurlTransport.swift
-    ├── GmailWebLink.swift
+    ├── MailTranslationService.swift
+    ├── HTMLTranslationDocument.swift
     ├── MIMEParser.swift
     ├── MailboxViewModel.swift
     ├── HTMLWebView.swift

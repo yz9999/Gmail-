@@ -92,6 +92,18 @@ GRResult gr_smtp_send(
     long timeout_seconds
 );
 
+GRResult gr_http_request(
+    const char *url,
+    const char *method,
+    const unsigned char *body,
+    size_t body_length,
+    const char *content_type,
+    const char *authorization,
+    const char *proxy_host,
+    int proxy_port,
+    long timeout_seconds
+);
+
 void gr_result_free(GRResult result);
 
 #endif

@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 
 @MainActor
@@ -12,6 +11,10 @@ final class MailboxViewModel: ObservableObject {
     @Published var total = 0
     @Published var isLoading = false
     @Published var isLoadingMessage = false
+    @Published var isTranslating = false
+    @Published var translatedBody: String?
+    @Published var translatedHTML: String?
+    @Published var showingTranslation = false
     @Published var errorMessage: String?
     @Published var toastMessage: String?
     @Published var showingCompose = false
@@ -20,10 +23,12 @@ final class MailboxViewModel: ObservableObject {
 
     let pageSize = 50
     private let service = GmailService()
+    private let translationService = MailTranslationService()
     private unowned let accounts: AccountStore
     private unowned let preferences: AppPreferences
     private var listTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
+    private var translationTask: Task<Void, Never>?
     private var generation = UUID()
     private var detailRequestID = UUID()
 
@@ -33,6 +38,7 @@ final class MailboxViewModel: ObservableObject {
     }
 
     var pageCount: Int { max(1, Int(ceil(Double(total) / Double(pageSize)))) }
+    var hasTranslation: Bool { translatedBody != nil || translatedHTML != nil }
     var rangeText: String {
         guard total > 0 else { return "0 封" }
         let start = (page - 1) * pageSize + 1
@@ -43,8 +49,9 @@ final class MailboxViewModel: ObservableObject {
     func accountChanged() {
         generation = UUID()
         detailRequestID = UUID()
-        listTask?.cancel(); detailTask?.cancel()
+        listTask?.cancel(); detailTask?.cancel(); translationTask?.cancel()
         selectedMessage = nil
+        resetTranslation()
         page = 1
         activeSearch = ""
         searchText = ""
@@ -127,12 +134,14 @@ final class MailboxViewModel: ObservableObject {
 
     func open(_ summary: MailSummary) {
         detailTask?.cancel()
+        translationTask?.cancel()
         guard let account = accounts.selectedAccount else { return }
         let requestGeneration = generation
         let requestID = UUID()
         detailRequestID = requestID
         isLoadingMessage = true
         selectedMessage = nil
+        resetTranslation()
         if !summary.isRead {
             if let index = messages.firstIndex(where: { $0.uid == summary.uid }) { messages[index].isRead = true }
         }
@@ -160,26 +169,56 @@ final class MailboxViewModel: ObservableObject {
 
     func closeMessage() {
         detailTask?.cancel()
+        translationTask?.cancel()
         detailRequestID = UUID()
         selectedMessage = nil
         isLoadingMessage = false
+        resetTranslation()
     }
 
-    func openCurrentMessageInGmail() {
+    func translateCurrentMessage() {
         guard let message = selectedMessage, let account = accounts.selectedAccount else { return }
-        guard let url = GmailWebLink.messageURL(
-            account: account.address,
-            messageID: message.messageID,
-            subject: message.subject
-        ) else {
-            errorMessage = "无法生成当前邮件的 Gmail 链接"
+        if hasTranslation {
+            showingTranslation = true
             return
         }
-        if NSWorkspace.shared.open(url) {
-            toast("已在 Gmail 中定位邮件，打开邮件后使用顶部或菜单中的“翻译成中文”")
-        } else {
-            errorMessage = "无法打开 Gmail，请检查默认浏览器设置"
+        translationTask?.cancel()
+        let requestID = detailRequestID
+        let cacheKey = "\(account.id.uuidString)|\(message.messageID)|\(message.uid)"
+        isTranslating = true
+        translationTask = Task {
+            do {
+                let translated = try await translationService.translateToChinese(
+                    plainBody: message.plainBody,
+                    htmlBody: message.htmlBody,
+                    cacheKey: cacheKey,
+                    proxy: preferences.proxy
+                )
+                try Task.checkCancellation()
+                guard requestID == detailRequestID, selectedMessage?.uid == message.uid else { return }
+                if translated.isHTML {
+                    translatedHTML = translated.content
+                } else {
+                    translatedBody = translated.content
+                }
+                showingTranslation = true
+            } catch is CancellationError {
+                return
+            } catch {
+                guard requestID == detailRequestID else { return }
+                errorMessage = error.localizedDescription
+            }
+            if requestID == detailRequestID { isTranslating = false }
         }
+    }
+
+    func showOriginalMessage() {
+        showingTranslation = false
+    }
+
+    func showTranslatedMessage() {
+        guard hasTranslation else { translateCurrentMessage(); return }
+        showingTranslation = true
     }
 
     func toggleStar(uid: UInt64) {
@@ -256,6 +295,13 @@ final class MailboxViewModel: ObservableObject {
 
     private func makeCredentials(_ account: MailAccount) throws -> GmailCredentials {
         GmailCredentials(address: account.address, password: try accounts.password(for: account), proxy: preferences.proxy)
+    }
+
+    private func resetTranslation() {
+        isTranslating = false
+        translatedBody = nil
+        translatedHTML = nil
+        showingTranslation = false
     }
 
     private func toast(_ message: String) {

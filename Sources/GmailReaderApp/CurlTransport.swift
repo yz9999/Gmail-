@@ -128,6 +128,82 @@ enum CurlTransport {
         }.value
     }
 
+    static func fetchMailTranslationToken(proxy: ProxySettings) async throws -> String {
+        let data = try await httpRequest(
+            url: "https://edge.microsoft.com/translate/auth",
+            method: "GET",
+            body: Data(),
+            contentType: nil,
+            authorization: nil,
+            proxy: proxy
+        )
+        let token = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.count >= 100, token.count <= 4_096,
+              token.filter({ $0 == "." }).count == 2,
+              !token.contains(where: { $0.isWhitespace }) else {
+            throw GmailReaderError.protocolError("邮件翻译服务返回了无效令牌")
+        }
+        return token
+    }
+
+    static func translateToSimplifiedChinese(_ texts: [String], bearerToken: String, textType: String,
+                                              proxy: ProxySettings) async throws -> [String] {
+        guard !texts.isEmpty, texts.count <= 100, textType == "html" || textType == "plain" else {
+            throw GmailReaderError.configuration("邮件翻译批次大小无效")
+        }
+        let payload = texts.map { ["Text": $0] }
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let data = try await httpRequest(
+            url: "https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&to=zh-Hans&textType=\(textType)",
+            method: "POST",
+            body: body,
+            contentType: "application/json; charset=UTF-8",
+            authorization: "Bearer \(bearerToken)",
+            proxy: proxy
+        )
+        return try parseSimplifiedChineseTranslations(data, expectedCount: texts.count)
+    }
+
+    static func parseSimplifiedChineseTranslations(_ data: Data, expectedCount: Int) throws -> [String] {
+        guard let response = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              response.count == expectedCount else {
+            throw GmailReaderError.protocolError("邮件翻译服务返回的数据数量不一致")
+        }
+        let values = try response.map { item -> String in
+            guard let translations = item["translations"] as? [[String: Any]],
+                  let translated = translations.first?["text"] as? String,
+                  !translated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw GmailReaderError.protocolError("邮件翻译服务返回了无效译文")
+            }
+            return translated
+        }
+        return values
+    }
+
+    private static func httpRequest(url: String, method: String, body: Data, contentType: String?,
+                                    authorization: String?, proxy: ProxySettings) async throws -> Data {
+        try await Task.detached(priority: .userInitiated) {
+            guard initialized else { throw GmailReaderError.network("无法初始化系统网络库") }
+            let urlPointer = try duplicate(url)
+            let methodPointer = try duplicate(method)
+            let contentTypePointer = try contentType.map(duplicate)
+            let authorizationPointer = try authorization.map(duplicate)
+            let proxyHost = proxy.enabled ? try duplicate(proxy.host) : nil
+            defer {
+                free(urlPointer); free(methodPointer); free(contentTypePointer)
+                free(authorizationPointer); free(proxyHost)
+            }
+            return try body.withUnsafeBytes { bytes in
+                let pointer = bytes.bindMemory(to: UInt8.self).baseAddress
+                let result = gr_http_request(
+                    urlPointer, methodPointer, pointer, body.count, contentTypePointer,
+                    authorizationPointer, proxyHost, proxy.enabled ? Int32(proxy.port) : 0, 30
+                )
+                return try consumeMailTranslation(result, usingProxy: proxy.enabled)
+            }
+        }.value
+    }
+
     private static func duplicate(_ value: String) throws -> UnsafeMutablePointer<CChar> {
         guard let pointer = strdup(value) else { throw GmailReaderError.network("内存不足") }
         return pointer
@@ -160,6 +236,19 @@ enum CurlTransport {
             throw GmailReaderError.network("Gmail 返回了无效数据")
         }
         return result.length == 0 ? Data() : Data(bytes: result.data!, count: result.length)
+    }
+
+    private static func consumeMailTranslation(_ result: GRResult, usingProxy: Bool) throws -> Data {
+        defer { gr_result_free(result) }
+        if let error = result.error {
+            let raw = String(cString: error)
+            let prefix = usingProxy ? "无法通过 SOCKS5 代理访问邮件翻译服务" : "无法访问邮件翻译服务"
+            throw GmailReaderError.network("\(prefix)：\(raw)")
+        }
+        guard result.length > 0, let data = result.data else {
+            throw GmailReaderError.network("邮件翻译服务未返回内容")
+        }
+        return Data(bytes: data, count: result.length)
     }
 
     static func decodePage(_ data: Data, page: Int, pageSize: Int) throws -> PagePayload {

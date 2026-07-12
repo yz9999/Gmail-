@@ -766,6 +766,90 @@ GRResult gr_smtp_send(
     return result;
 }
 
+GRResult gr_http_request(
+    const char *url,
+    const char *method,
+    const unsigned char *body,
+    size_t body_length,
+    const char *content_type,
+    const char *authorization,
+    const char *proxy_host,
+    int proxy_port,
+    long timeout_seconds
+) {
+    if (!url || !method || (strcmp(method, "GET") != 0 && strcmp(method, "POST") != 0) ||
+        (body_length > 0 && !body) || body_length > GR_MAX_IMAP_RESPONSE ||
+        (authorization && strpbrk(authorization, "\r\n"))) {
+        return failure("Invalid HTTPS request arguments", CURLE_BAD_FUNCTION_ARGUMENT);
+    }
+    CURL *curl = curl_easy_init();
+    if (!curl) return failure("Unable to create libcurl handle", CURLE_FAILED_INIT);
+
+    Buffer response = {0};
+    char error_buffer[CURL_ERROR_SIZE] = {0};
+    configure_common(curl, &response, NULL, NULL, proxy_host, proxy_port, timeout_seconds, error_buffer);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+    if (strcmp(method, "POST") == 0) {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)body_length);
+    }
+
+    struct curl_slist *headers = NULL;
+    char *content_header = NULL;
+    char *authorization_header = NULL;
+    if (content_type) {
+        size_t length = strlen(content_type) + 32;
+        content_header = malloc(length);
+        if (!content_header) goto out_of_memory;
+        snprintf(content_header, length, "Content-Type: %s", content_type);
+        headers = curl_slist_append(headers, content_header);
+        if (!headers) goto out_of_memory;
+    }
+    if (authorization) {
+        size_t length = strlen(authorization) + 24;
+        authorization_header = malloc(length);
+        if (!authorization_header) goto out_of_memory;
+        snprintf(authorization_header, length, "Authorization: %s", authorization);
+        struct curl_slist *updated = curl_slist_append(headers, authorization_header);
+        if (!updated) goto out_of_memory;
+        headers = updated;
+    }
+    if (headers) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    CURLcode code = curl_easy_perform(curl);
+    long http_status = 0;
+    if (code == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+    curl_slist_free_all(headers);
+    free(content_header);
+    free(authorization_header);
+    curl_easy_cleanup(curl);
+    if (code != CURLE_OK) {
+        free(response.bytes);
+        return failure(error_buffer[0] ? error_buffer : curl_easy_strerror(code), code);
+    }
+    if (http_status < 200 || http_status >= 300) {
+        char message[96];
+        snprintf(message, sizeof(message), "HTTPS request returned HTTP %ld", http_status);
+        free(response.bytes);
+        return failure(message, http_status);
+    }
+    GRResult result = {response.bytes, response.length, NULL, http_status};
+    return result;
+
+out_of_memory:
+    curl_slist_free_all(headers);
+    free(content_header);
+    free(authorization_header);
+    free(response.bytes);
+    curl_easy_cleanup(curl);
+    return failure("Out of memory", CURLE_OUT_OF_MEMORY);
+}
+
 void gr_result_free(GRResult result) {
     free(result.data);
     free(result.error);

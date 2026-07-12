@@ -29,6 +29,25 @@ final class CurlTransportTests: XCTestCase {
         XCTAssertThrowsError(try CurlTransport.decodePage(data, page: 1, pageSize: 50))
     }
 
+    func testParsesBatchedSimplifiedChineseTranslations() throws {
+        let response = Data(#"""
+        [
+          {"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"最高可享9折优惠","to":"zh-Hans"}]},
+          {"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"立即购买","to":"zh-Hans"}]}
+        ]
+        """#.utf8)
+
+        let result = try CurlTransport.parseSimplifiedChineseTranslations(response, expectedCount: 2)
+
+        XCTAssertEqual(result, ["最高可享9折优惠", "立即购买"])
+    }
+
+    func testRejectsIncompleteTranslationBatch() {
+        let response = Data(#"[{"translations":[{"text":"你好","to":"zh-Hans"}]}]"#.utf8)
+
+        XCTAssertThrowsError(try CurlTransport.parseSimplifiedChineseTranslations(response, expectedCount: 2))
+    }
+
 }
 
 private extension Data {
