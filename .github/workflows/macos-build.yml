@@ -51,6 +51,8 @@ jobs:
             "build/artifacts/GmailReader-macOS.zip"
           shasum -a 256 build/artifacts/GmailReader-macOS.zip > build/artifacts/SHA256SUMS.txt
           codesign --verify --deep --strict "dist/Gmail Reader.app"
+          lipo "dist/Gmail Reader.app/Contents/MacOS/GmailReaderApp" -verify_arch x86_64 arm64
+          lipo -archs "dist/Gmail Reader.app/Contents/MacOS/GmailReaderApp"
           plutil -p "dist/Gmail Reader.app/Contents/Info.plist"
 
       - name: Upload macOS app

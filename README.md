@@ -5,6 +5,7 @@
 ## 功能
 
 - Gmail 风格的原生 SwiftUI 界面
+- Universal 2 应用，同时支持 Intel (`x86_64`) 和 Apple 芯片 (`arm64`)
 - 多账号切换与账号管理
 - 应用专用密码保存在 macOS 钥匙串
 - 收件箱、未读、星标、已发送、草稿、所有邮件、垃圾邮件、回收站
@@ -47,7 +48,7 @@ cp -R "dist/Gmail Reader.app" /Applications/
 open "/Applications/Gmail Reader.app"
 ```
 
-脚本会执行 SwiftPM Release 构建、创建标准 `.app` Bundle，并进行本机临时签名。正式分发时应改用 Developer ID 签名并完成 Apple 公证。
+脚本会分别构建 `x86_64-apple-macosx12.0` 和 `arm64-apple-macosx12.0`，再合并为 Universal 2 可执行文件、创建标准 `.app` Bundle，并进行本机临时签名。正式分发时应改用 Developer ID 签名并完成 Apple 公证。
 
 ## 账号与迁移
 
