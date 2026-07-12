@@ -39,7 +39,7 @@ struct HTMLTranslationDocument: Sendable {
             }
 
             var pieces: [Piece] = []
-            for chunk in Self.chunks(rawToken.value, maximumCharacters: 1_600) {
+            for chunk in Self.requestSizedChunks(rawToken.value) {
                 let bounds = Self.translationBounds(in: chunk)
                 guard let bounds, Self.shouldTranslate(String(chunk[bounds])) else {
                     pieces.append(.literal(chunk))
@@ -76,7 +76,7 @@ struct HTMLTranslationDocument: Sendable {
         tokens = builtTokens
     }
 
-    /// 每个请求只包含由本类生成的 div/span 片段，不包含邮件本身的任何标签。
+    /// 每个请求只包含由本类生成的 gr-unit/gr-entity 片段，不包含邮件本身的任何标签。
     /// 因此 Google 只能改动文字，无法再破坏邮件 DOM、CSS、链接或图片。
     func batches(maximumCharacters: Int = 3_500) -> [[Unit]] {
         guard !units.isEmpty else { return [] }
@@ -104,56 +104,82 @@ struct HTMLTranslationDocument: Sendable {
 
     /// 从 Google 返回的片段提取各文本节点。只有所有 ID 和保护标记都完整时才接受结果。
     static func parseResponse(_ response: String, expected units: [Unit]) -> [Int: String]? {
-        guard !units.isEmpty else { return [:] }
-        guard let unitRegex = try? NSRegularExpression(
-            pattern: #"<div\s+data-gr-unit\s*=\s*["']?(\d+)["']?[^>]*>(.*?)</div\s*>"#,
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ), let markerRegex = try? NSRegularExpression(
-            pattern: #"<span\s+data-gr-marker\s*=\s*["']?(\d+)["']?[^>]*>\s*</span\s*>"#,
-            options: [.caseInsensitive, .dotMatchesLineSeparators]
-        ) else { return nil }
-
-        let expectedByID = Dictionary(uniqueKeysWithValues: units.map { ($0.id, $0) })
-        let responseRange = NSRange(response.startIndex..<response.endIndex, in: response)
-        let matches = unitRegex.matches(in: response, range: responseRange)
-        var result: [Int: String] = [:]
-
-        for match in matches {
-            guard let idRange = Range(match.range(at: 1), in: response),
-                  let bodyRange = Range(match.range(at: 2), in: response),
-                  let id = Int(response[idRange]),
-                  let unit = expectedByID[id], result[id] == nil else { return nil }
-
-            var body = String(response[bodyRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-            let markerMatches = markerRegex.matches(
-                in: body,
-                range: NSRange(body.startIndex..<body.endIndex, in: body)
-            )
-            guard markerMatches.count == unit.protectedValues.count else { return nil }
-
-            var bodyWithoutMarkers = body
-            for markerMatch in markerMatches.reversed() {
-                guard let wholeRange = Range(markerMatch.range(at: 0), in: bodyWithoutMarkers) else { return nil }
-                bodyWithoutMarkers.removeSubrange(wholeRange)
-            }
-            // 输入中除保护 span 外没有标签；响应若多出标签，说明接口改写了片段。
-            guard !bodyWithoutMarkers.contains("<"), !bodyWithoutMarkers.contains(">") else { return nil }
-
-            // 从后往前替换，避免较早的替换令 NSRange 失效。
-            var seenMarkers = Set<Int>()
-            for markerMatch in markerMatches.reversed() {
-                guard let markerIDRange = Range(markerMatch.range(at: 1), in: body),
-                      let markerID = Int(body[markerIDRange]),
-                      unit.protectedValues.indices.contains(markerID),
-                      seenMarkers.insert(markerID).inserted,
-                      let wholeRange = Range(markerMatch.range(at: 0), in: body) else { return nil }
-                body.replaceSubrange(wholeRange, with: unit.protectedValues[markerID])
-            }
-            guard seenMarkers.count == unit.protectedValues.count else { return nil }
-            result[id] = body
-        }
-
+        let result = parseAvailableResponse(response, expected: units)
         return result.count == units.count ? result : nil
+    }
+
+    /// Google 偶尔只改写一个边界标记。有效节点仍可使用，失败节点再走纯文本回退，
+    /// 不能因为一段隐藏预览文字失败就放弃整封营销邮件。
+    static func parseAvailableResponse(_ response: String, expected units: [Unit]) -> [Int: String] {
+        var result: [Int: String] = [:]
+        for unit in units {
+            if let body = parsedBody(in: response, for: unit) { result[unit.id] = body }
+        }
+        return result
+    }
+
+    /// HTML 包装片段无法识别时使用。请求中以长标记代替实体，响应必须完整带回标记；
+    /// 普通译文会进行 HTML 转义，原始实体则逐字放回，因此回退也不会破坏 DOM。
+    static func plainFallbackRequest(for unit: Unit) -> String {
+        var result = unit.protectedSource
+        for id in unit.protectedValues.indices {
+            result = result.replacingOccurrences(of: markerTag(id), with: plainMarker(unitID: unit.id, markerID: id))
+        }
+        return result
+    }
+
+    static func plainFallbackRequest(for units: [Unit]) -> String {
+        units.map { unit in
+            "\(plainUnitBoundary(unit.id, isStart: true))\(plainFallbackRequest(for: unit))\(plainUnitBoundary(unit.id, isStart: false))"
+        }.joined(separator: "\n")
+    }
+
+    static func parsePlainFallbackResponse(_ response: String, expected units: [Unit]) -> [Int: String] {
+        var result: [Int: String] = [:]
+        let fullRange = NSRange(response.startIndex..<response.endIndex, in: response)
+        for unit in units {
+            let start = NSRegularExpression.escapedPattern(for: plainUnitBoundary(unit.id, isStart: true))
+            let end = NSRegularExpression.escapedPattern(for: plainUnitBoundary(unit.id, isStart: false))
+            guard let regex = try? NSRegularExpression(
+                pattern: start + "(.*?)" + end,
+                options: [.dotMatchesLineSeparators]
+            ) else { continue }
+            let matches = regex.matches(in: response, range: fullRange)
+            guard matches.count == 1,
+                  let bodyRange = Range(matches[0].range(at: 1), in: response),
+                  let value = parsePlainFallbackResponse(String(response[bodyRange]), for: unit) else { continue }
+            result[unit.id] = value
+        }
+        return result
+    }
+
+    static func parsePlainFallbackResponse(_ response: String, for unit: Unit) -> String? {
+        let value = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        guard !unit.protectedValues.isEmpty else { return escapeHTMLText(value) }
+
+        let markerPrefix = "__GMAIL_READER_HTML_\(unit.id)_"
+        let pattern = NSRegularExpression.escapedPattern(for: markerPrefix) + #"(\d+)__"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let matches = regex.matches(in: value, range: NSRange(value.startIndex..<value.endIndex, in: value))
+        guard matches.count == unit.protectedValues.count else { return nil }
+
+        var seen = Set<Int>()
+        var cursor = value.startIndex
+        var output = ""
+        for match in matches {
+            guard let wholeRange = Range(match.range(at: 0), in: value),
+                  let idRange = Range(match.range(at: 1), in: value),
+                  let id = Int(value[idRange]),
+                  unit.protectedValues.indices.contains(id),
+                  seen.insert(id).inserted else { return nil }
+            output += escapeHTMLText(String(value[cursor..<wholeRange.lowerBound]))
+            output += unit.protectedValues[id]
+            cursor = wholeRange.upperBound
+        }
+        guard seen.count == unit.protectedValues.count else { return nil }
+        output += escapeHTMLText(String(value[cursor...]))
+        return output
     }
 
     func render(translations: [Int: String]) -> String {
@@ -178,7 +204,7 @@ struct HTMLTranslationDocument: Sendable {
     }
 
     private static func wrapper(for unit: Unit) -> String {
-        #"<div data-gr-unit="\#(unit.id)">\#(unit.protectedSource)</div>"#
+        #"<gr-unit data-id="\#(unit.id)">\#(unit.protectedSource)</gr-unit>"#
     }
 
     private static func protectHTMLSyntax(in value: String) -> (text: String, values: [String]) {
@@ -189,7 +215,7 @@ struct HTMLTranslationDocument: Sendable {
         func marker(_ original: String) -> String {
             let id = values.count
             values.append(original)
-            return #"<span data-gr-marker="\#(id)"></span>"#
+            return markerTag(id)
         }
 
         while index < value.endIndex {
@@ -223,6 +249,107 @@ struct HTMLTranslationDocument: Sendable {
             }
         }
         return (output, values)
+    }
+
+    private static func parsedBody(in response: String, for unit: Unit) -> String? {
+        let id = unit.id
+        let exactID = #"(?:["']\#(id)["']|\#(id)(?=[\s>]))"#
+        // 自定义标签已经过线上接口验证；\s* 同时兼容接口偶发输出的 <gr-unitdata-id=...>。
+        let customPattern = #"<gr-unit\s*data-id\s*=\s*\#(exactID)[^>]*>(.*?)</gr-unit\s*>"#
+        // 兼容 1.2.3 的返回格式，同时容忍 Google 偶尔删掉标签与属性间的空格。
+        let legacyPattern = #"<div\s*data-gr-unit\s*=\s*\#(exactID)[^>]*>(.*?)</div\s*>"#
+        guard let body = singleCapturedBody(in: response, patterns: [customPattern, legacyPattern]) else { return nil }
+
+        let customMarkerPattern = #"<gr-entity\s*data-id\s*=\s*["']?(\d+)["']?[^>]*>\s*</gr-entity\s*>"#
+        let customSelfClosingPattern = #"<gr-entity\s*data-id\s*=\s*["']?(\d+)["']?[^>]*/>"#
+        let legacyMarkerPattern = #"<span\s*data-gr-marker\s*=\s*["']?(\d+)["']?[^>]*>\s*</span\s*>"#
+        guard let markerMatches = matches(
+            in: body,
+            patterns: [customMarkerPattern, customSelfClosingPattern, legacyMarkerPattern]
+        ), markerMatches.count == unit.protectedValues.count else { return nil }
+
+        var bodyWithoutMarkers = body
+        for markerMatch in markerMatches.reversed() {
+            guard let wholeRange = Range(markerMatch.wholeRange, in: bodyWithoutMarkers) else { return nil }
+            bodyWithoutMarkers.removeSubrange(wholeRange)
+        }
+        // 输入中除保护标记外没有标签；响应若多出标签，说明接口改写了片段。
+        guard !bodyWithoutMarkers.contains("<"), !bodyWithoutMarkers.contains(">") else { return nil }
+
+        var translated = body
+        var seenMarkers = Set<Int>()
+        for markerMatch in markerMatches.reversed() {
+            guard let markerIDRange = Range(markerMatch.idRange, in: translated),
+                  let markerID = Int(translated[markerIDRange]),
+                  unit.protectedValues.indices.contains(markerID),
+                  seenMarkers.insert(markerID).inserted,
+                  let wholeRange = Range(markerMatch.wholeRange, in: translated) else { return nil }
+            translated.replaceSubrange(wholeRange, with: unit.protectedValues[markerID])
+        }
+        guard seenMarkers.count == unit.protectedValues.count else { return nil }
+        let cleaned = translated.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private struct MarkerMatch {
+        let wholeRange: NSRange
+        let idRange: NSRange
+    }
+
+    private static func matches(in value: String, patterns: [String]) -> [MarkerMatch]? {
+        let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        var result: [MarkerMatch] = []
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(
+                pattern: pattern,
+                options: [.caseInsensitive, .dotMatchesLineSeparators]
+            ) else { continue }
+            let found = regex.matches(in: value, range: fullRange).compactMap { match -> MarkerMatch? in
+                guard match.numberOfRanges > 1, match.range(at: 1).location != NSNotFound else { return nil }
+                return MarkerMatch(wholeRange: match.range(at: 0), idRange: match.range(at: 1))
+            }
+            for match in found where !result.contains(where: { NSEqualRanges($0.wholeRange, match.wholeRange) }) {
+                result.append(match)
+            }
+        }
+        return result.sorted { $0.wholeRange.location < $1.wholeRange.location }
+    }
+
+    private static func singleCapturedBody(in value: String, patterns: [String]) -> String? {
+        let fullRange = NSRange(value.startIndex..<value.endIndex, in: value)
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(
+                pattern: pattern,
+                options: [.caseInsensitive, .dotMatchesLineSeparators]
+            ) else { continue }
+            let found = regex.matches(in: value, range: fullRange)
+            guard found.count <= 1 else { return nil }
+            if let match = found.first,
+               match.numberOfRanges > 1,
+               let bodyRange = Range(match.range(at: 1), in: value) {
+                return String(value[bodyRange])
+            }
+        }
+        return nil
+    }
+
+    private static func markerTag(_ id: Int) -> String {
+        #"<gr-entity data-id="\#(id)"></gr-entity>"#
+    }
+
+    private static func plainMarker(unitID: Int, markerID: Int) -> String {
+        "__GMAIL_READER_HTML_\(unitID)_\(markerID)__"
+    }
+
+    private static func plainUnitBoundary(_ unitID: Int, isStart: Bool) -> String {
+        "__GMAIL_READER_UNIT_\(unitID)_\(isStart ? "BEGIN" : "END")__"
+    }
+
+    private static func escapeHTMLText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 
     private static func translationBounds(in value: String) -> Range<String.Index>? {
@@ -262,11 +389,63 @@ struct HTMLTranslationDocument: Sendable {
                    value.distance(from: start, to: boundary) >= maximumCharacters / 2 {
                     end = value.index(after: boundary)
                 }
+                end = entitySafeBoundary(in: value, start: start, proposedEnd: end)
             }
             result.append(String(value[start..<end]))
             start = end
         }
         return result
+    }
+
+    private static func requestSizedChunks(_ value: String) -> [String] {
+        var pending = Array(chunks(value, maximumCharacters: 1_600).reversed())
+        var result: [String] = []
+
+        while let candidate = pending.popLast() {
+            guard let bounds = translationBounds(in: candidate),
+                  shouldTranslate(String(candidate[bounds])) else {
+                result.append(candidate)
+                continue
+            }
+            let source = String(candidate[bounds])
+            let estimatedRequestLength = protectHTMLSyntax(in: source).text.count + 80
+            guard estimatedRequestLength > 3_400, candidate.count > 1 else {
+                result.append(candidate)
+                continue
+            }
+
+            var split = candidate.index(candidate.startIndex, offsetBy: candidate.count / 2)
+            let leftCandidate = candidate.startIndex..<split
+            if let whitespace = candidate[leftCandidate].lastIndex(where: { $0.isWhitespace }),
+               candidate.distance(from: candidate.startIndex, to: whitespace) >= candidate.count / 4 {
+                split = candidate.index(after: whitespace)
+            }
+            split = entitySafeBoundary(in: candidate, start: candidate.startIndex, proposedEnd: split)
+            guard split > candidate.startIndex, split < candidate.endIndex else {
+                result.append(candidate)
+                continue
+            }
+            // 栈按左到右处理，最终拼接仍与原始文本逐字一致。
+            pending.append(String(candidate[split...]))
+            pending.append(String(candidate[..<split]))
+        }
+        return result
+    }
+
+    /// 不从 `&zwnj;`、`&#8204;` 等实体中间切开。否则半个实体里的 zwnj 会被误判成
+    /// 可见英文文字，营销邮件的隐藏填充区就会产生大量无意义翻译请求。
+    private static func entitySafeBoundary(in value: String, start: String.Index,
+                                           proposedEnd: String.Index) -> String.Index {
+        guard start < proposedEnd else { return proposedEnd }
+        let prefix = value[start..<proposedEnd]
+        guard let ampersand = prefix.lastIndex(of: "&") else { return proposedEnd }
+        if let semicolon = prefix.lastIndex(of: ";"), semicolon > ampersand { return proposedEnd }
+        if ampersand > start { return ampersand }
+        if let semicolon = value[proposedEnd...].firstIndex(of: ";"),
+           value.distance(from: proposedEnd, to: semicolon) <= 32 {
+            return value.index(after: semicolon)
+        }
+        return proposedEnd
     }
 
     private struct RawToken {

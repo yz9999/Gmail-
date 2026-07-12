@@ -52,19 +52,26 @@ actor GoogleTranslationService {
                            proxy: ProxySettings) async throws -> [Int: String] {
         let request = HTMLTranslationDocument.requestHTML(for: batch)
         let response = try await CurlTransport.translateToChinese(request, proxy: proxy)
-        if let parsed = HTMLTranslationDocument.parseResponse(response, expected: batch) { return parsed }
+        var result = HTMLTranslationDocument.parseAvailableResponse(response, expected: batch)
 
-        // 极少数情况下 Google 会合并相邻片段；改为逐节点重试，仍然绝不发送原始 HTML。
-        var result: [Int: String] = [:]
-        for unit in batch {
+        let missing = batch.filter { result[$0.id] == nil }
+        guard !missing.isEmpty else { return result }
+
+        // 将所有失败节点合并为一次纯文本回退请求，避免营销邮件产生几十次网络重试。
+        // 回退会转义译文并恢复原始实体；仍无法识别的节点只保留该小段原文。
+        do {
             try Task.checkCancellation()
-            let singleRequest = HTMLTranslationDocument.requestHTML(for: [unit])
-            let singleResponse = try await CurlTransport.translateToChinese(singleRequest, proxy: proxy)
-            guard let parsed = HTMLTranslationDocument.parseResponse(singleResponse, expected: [unit]),
-                  let value = parsed[unit.id] else {
-                throw GmailReaderError.protocolError("Google 翻译未能安全保留邮件排版，请稍后重试")
-            }
-            result[unit.id] = value
+            let fallbackRequest = HTMLTranslationDocument.plainFallbackRequest(for: missing)
+            let fallbackResponse = try await CurlTransport.translateToChinese(fallbackRequest, proxy: proxy)
+            let fallbackValues = HTMLTranslationDocument.parsePlainFallbackResponse(fallbackResponse, expected: missing)
+            result.merge(fallbackValues) { _, new in new }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // 初始 HTML 批次已经成功，回退网络错误不应令整封邮件失败。
+        }
+        for unit in missing where result[unit.id] == nil {
+            result[unit.id] = unit.source
         }
         return result
     }
