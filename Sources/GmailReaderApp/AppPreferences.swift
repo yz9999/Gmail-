@@ -10,7 +10,7 @@ final class AppPreferences: ObservableObject {
 
     init() {
         if defaults.object(forKey: "proxyEnabled") == nil {
-            proxyEnabled = true
+            proxyEnabled = false
             proxyHost = "127.0.0.1"
             proxyPort = 6153
         } else {

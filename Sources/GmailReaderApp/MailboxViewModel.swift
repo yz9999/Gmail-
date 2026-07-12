@@ -85,7 +85,11 @@ final class MailboxViewModel: ObservableObject {
         page += 1; selectedMessage = nil; reload()
     }
 
-    func reload() {
+    func refresh() {
+        reload(forceRefresh: true)
+    }
+
+    func reload(forceRefresh: Bool = false) {
         listTask?.cancel()
         guard let account = accounts.selectedAccount else {
             messages = []; total = 0; isLoading = false
@@ -101,7 +105,8 @@ final class MailboxViewModel: ObservableObject {
             do {
                 let credentials = try makeCredentials(account)
                 let result = try await service.page(kind: requestedMailbox, page: requestedPage, pageSize: pageSize,
-                                                    query: requestedQuery.isEmpty ? nil : requestedQuery, credentials: credentials)
+                                                    query: requestedQuery.isEmpty ? nil : requestedQuery,
+                                                    forceRefresh: forceRefresh, credentials: credentials)
                 try Task.checkCancellation()
                 guard requestGeneration == generation, accounts.selectedAccountID == account.id,
                       requestedMailbox == mailbox, requestedPage == page, requestedQuery == activeSearch else { return }

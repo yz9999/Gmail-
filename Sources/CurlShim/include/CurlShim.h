@@ -58,6 +58,27 @@ GRResult gr_imap_fetch_summaries(
     long timeout_seconds
 );
 
+/*
+ * Opens one verified TLS/IMAP session, searches the selected mailbox and
+ * fetches the requested page of summaries on that same connection.
+ * Result format: "GRP1", big-endian UInt64 UID count, all UIDs, raw FETCH data.
+ * When query is non-empty it is sent as an IMAP UTF-8 literal using X-GM-RAW.
+ */
+GRResult gr_imap_page(
+    const char *host,
+    int port,
+    const char *folder,
+    const char *search_criteria,
+    const char *query,
+    int page,
+    int page_size,
+    const char *username,
+    const char *password,
+    const char *proxy_host,
+    int proxy_port,
+    long timeout_seconds
+);
+
 GRResult gr_smtp_send(
     const char *url,
     const char *username,

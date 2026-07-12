@@ -161,7 +161,7 @@ private struct MessageListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Button(action: { model.reload() }) { Image(systemName: "arrow.clockwise") }.buttonStyle(ToolbarButtonStyle())
+                Button(action: { model.refresh() }) { Image(systemName: "arrow.clockwise") }.buttonStyle(ToolbarButtonStyle())
                 Menu {
                     Button("将所有会话标记为已读", action: { model.markAllRead() })
                 } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).frame(width: 30)
@@ -391,7 +391,7 @@ private struct SettingsView: View {
                 TextField("代理主机", text: $preferences.proxyHost)
                 TextField("端口", value: $preferences.proxyPort, formatter: NumberFormatter()).frame(width: 100)
             }.disabled(!preferences.proxyEnabled)
-            Text("当前网络建议使用 127.0.0.1:6153。域名解析由 SOCKS5 代理完成，可避免 Fake-IP 导致的 Gmail TLS 连接错误。")
+            Text("默认使用经过系统证书校验的直连 TLS。只有当当前网络无法直接访问 Gmail 时，才需要启用 SOCKS5 代理。")
                 .font(.caption).foregroundColor(.secondary)
             Spacer()
         }.padding(24).frame(width: 460, height: 260)

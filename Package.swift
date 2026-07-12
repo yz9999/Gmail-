@@ -13,7 +13,7 @@ let package = Package(
             path: "Sources/CurlShim",
             publicHeadersPath: "include",
             cSettings: [.unsafeFlags(["-Wno-deprecated-declarations"])],
-            linkerSettings: [.linkedLibrary("curl"), .linkedFramework("Security")]
+            linkerSettings: [.linkedLibrary("curl")]
         ),
         .executableTarget(
             name: "GmailReaderApp",

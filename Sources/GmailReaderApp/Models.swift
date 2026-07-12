@@ -84,12 +84,12 @@ struct MailPage {
     let total: Int
 }
 
-struct ProxySettings: Equatable {
+struct ProxySettings: Equatable, Hashable, Sendable {
     var enabled: Bool
     var host: String
     var port: Int
 
-    static let `default` = ProxySettings(enabled: true, host: "127.0.0.1", port: 6153)
+    static let `default` = ProxySettings(enabled: false, host: "127.0.0.1", port: 6153)
 }
 
 enum GmailReaderError: LocalizedError {

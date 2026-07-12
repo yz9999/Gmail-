@@ -4,36 +4,92 @@ actor GmailService {
     private let imapBaseURL = "imaps://imap.gmail.com:993"
     private let smtpURL = "smtps://smtp.gmail.com:465"
     private var folderCache: [String: [MailboxKind: String]] = [:]
+    private var folderPrefetching: Set<String> = []
+    private var listCache: [ListCacheKey: ListCacheEntry] = [:]
+    private var summaryCache: [SummaryCacheKey: MailSummary] = [:]
+
+    private struct ListCacheKey: Hashable {
+        let address: String
+        let folder: String
+        let criteria: String
+        let query: String
+        let proxy: String
+    }
+
+    private struct ListCacheEntry {
+        let uids: [UInt64]
+        let fetchedAt: Date
+    }
+
+    private struct SummaryCacheKey: Hashable {
+        let address: String
+        let folder: String
+        let uid: UInt64
+    }
 
     func verify(credentials: GmailCredentials) async throws {
         _ = try await CurlTransport.imap(url: "\(imapBaseURL)/INBOX", credentials: credentials, command: "NOOP", timeout: 30)
     }
 
-    func page(kind: MailboxKind, page: Int, pageSize: Int, query: String?, credentials: GmailCredentials) async throws -> MailPage {
-        let folders = try await folders(credentials: credentials)
-        let folder = resolveFolder(kind, folders: folders)
-        let encodedFolder = encodeMailbox(folder)
-        let criteria: String
+    func page(kind: MailboxKind, page: Int, pageSize: Int, query: String?, forceRefresh: Bool = false,
+              credentials: GmailCredentials) async throws -> MailPage {
+        let cleanQuery: String?
         if let query, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let clean = try safeSearchQuery(query)
-            let allFolder = folders[.all] ?? "INBOX"
-            return try await searchPage(folder: allFolder, page: page, pageSize: pageSize, query: clean, credentials: credentials)
+            cleanQuery = try safeSearchQuery(query)
+        } else {
+            cleanQuery = nil
         }
-        switch kind {
-        case .unread: criteria = "UNSEEN"
-        case .starred: criteria = "FLAGGED"
-        default: criteria = "ALL"
+        let folder: String
+        if cleanQuery != nil {
+            folder = try await folders(credentials: credentials)[.all] ?? "INBOX"
+        } else if kind == .inbox || kind == .unread {
+            // Gmail 的这两个首页邮箱固定为 INBOX，无需先发 LIST 请求。
+            folder = "INBOX"
+            prefetchFolders(credentials: credentials)
+        } else {
+            folder = resolveFolder(kind, folders: try await folders(credentials: credentials))
         }
-        let response = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encodedFolder)", credentials: credentials,
-                                                    command: "UID SEARCH \(criteria)")
-        return try await makePage(searchResponse: response, folder: folder, page: page, pageSize: pageSize, credentials: credentials)
+        let criteria: String
+        if cleanQuery != nil {
+            criteria = "ALL"
+        } else {
+            switch kind {
+            case .unread: criteria = "UNSEEN"
+            case .starred: criteria = "FLAGGED"
+            default: criteria = "ALL"
+            }
+        }
+        let key = ListCacheKey(address: credentials.address, folder: folder, criteria: criteria,
+                               query: cleanQuery ?? "", proxy: proxySignature(credentials.proxy))
+        if !forceRefresh, let cached = listCache[key], cacheIsFresh(cached, isSearch: cleanQuery != nil) {
+            do {
+                return try await pageFromCachedUIDs(cached.uids, folder: folder, page: page, pageSize: pageSize,
+                                                    credentials: credentials)
+            } catch GmailReaderError.protocolError(_) {
+                listCache.removeValue(forKey: key)
+            }
+        }
+
+        let payload = try await CurlTransport.fetchPage(folder: folder, criteria: criteria, query: cleanQuery,
+                                                        page: page, pageSize: pageSize, credentials: credentials)
+        listCache[key] = ListCacheEntry(uids: payload.allUIDs, fetchedAt: Date())
+        cacheSummaries(payload.summaries, address: credentials.address, folder: folder)
+        trimCaches()
+        return try makePage(uids: payload.allUIDs, folder: folder, page: page, pageSize: pageSize,
+                            address: credentials.address)
     }
 
     func message(uid: UInt64, kind: MailboxKind, query: String?, credentials: GmailCredentials) async throws -> MailMessage {
         let folders = try await folders(credentials: credentials)
         let folder = (query?.isEmpty == false) ? (folders[.all] ?? "INBOX") : resolveFolder(kind, folders: folders)
         let encoded = encodeMailbox(folder)
-        let flags = try await flags(for: [uid], folder: folder, credentials: credentials)[uid] ?? []
+        let cacheKey = SummaryCacheKey(address: credentials.address, folder: folder, uid: uid)
+        let flags: Set<String>
+        if let cached = summaryCache[cacheKey] {
+            flags = cachedFlags(from: cached)
+        } else {
+            flags = try await self.flags(for: [uid], folder: folder, credentials: credentials)[uid] ?? []
+        }
         let raw = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encoded);UID=\(uid)", credentials: credentials, timeout: 90)
         return MIMEParser.message(uid: uid, raw: raw, flags: flags)
     }
@@ -45,6 +101,12 @@ actor GmailService {
         let operation = enabled ? "+FLAGS.SILENT" : "-FLAGS.SILENT"
         _ = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encodeMailbox(folder))", credentials: credentials,
                                         command: "UID STORE \(uid) \(operation) (\(flag))")
+        updateCachedFlag(address: credentials.address, folder: folder, uid: uid, flag: flag, enabled: enabled)
+        if flag.caseInsensitiveCompare("\\Seen") == .orderedSame {
+            invalidateListCaches(address: credentials.address, folder: folder, criteria: "UNSEEN")
+        } else if flag.caseInsensitiveCompare("\\Flagged") == .orderedSame {
+            invalidateListCaches(address: credentials.address, folder: folder, criteria: "FLAGGED")
+        }
     }
 
     func markAllRead(kind: MailboxKind, query: String?, credentials: GmailCredentials) async throws -> Int {
@@ -82,6 +144,11 @@ actor GmailService {
             _ = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encodeMailbox(folder))", credentials: credentials,
                                             command: "UID STORE \(set) +FLAGS.SILENT (\\Seen)", timeout: 90)
         }
+        let changed = Set(uids)
+        for key in Array(summaryCache.keys) where key.address == credentials.address && key.folder == folder && changed.contains(key.uid) {
+            summaryCache[key]?.isRead = true
+        }
+        invalidateListCaches(address: credentials.address, folder: folder, criteria: "UNSEEN")
         return uids.count
     }
 
@@ -112,33 +179,91 @@ actor GmailService {
                                      message: Data(raw.utf8), credentials: credentials)
     }
 
-    private func searchPage(folder: String, page: Int, pageSize: Int, query: String,
-                            credentials: GmailCredentials) async throws -> MailPage {
-        let response: Data
-        if query.unicodeScalars.allSatisfy(\.isASCII) {
-            let command = "UID SEARCH X-GM-RAW \"\(escapeQuoted(query))\""
-            response = try await CurlTransport.imap(url: "\(imapBaseURL)/\(encodeMailbox(folder))", credentials: credentials,
-                                                    command: command, timeout: 90)
-        } else {
-            response = try await CurlTransport.searchUTF8(folder: folder, query: query, credentials: credentials)
+    private func pageFromCachedUIDs(_ uids: [UInt64], folder: String, page: Int, pageSize: Int,
+                                    credentials: GmailCredentials) async throws -> MailPage {
+        let selected = pageUIDs(uids, page: page, pageSize: pageSize)
+        let missing = selected.filter {
+            summaryCache[SummaryCacheKey(address: credentials.address, folder: folder, uid: $0)] == nil
         }
-        return try await makePage(searchResponse: response, folder: folder, page: page, pageSize: pageSize, credentials: credentials)
+        if !missing.isEmpty {
+            let payloads = try await CurlTransport.fetchSummaries(folder: folder, uids: missing, credentials: credentials)
+            cacheSummaries(payloads, address: credentials.address, folder: folder)
+        }
+        return try makePage(uids: uids, folder: folder, page: page, pageSize: pageSize, address: credentials.address)
     }
 
-    private func makePage(searchResponse: Data, folder: String, page: Int, pageSize: Int,
-                          credentials: GmailCredentials) async throws -> MailPage {
-        let allUIDs = parseSearch(searchResponse)
-        let total = allUIDs.count
-        let end = max(0, total - max(0, page - 1) * pageSize)
-        let start = max(0, end - pageSize)
-        let selected = start < end ? Array(allUIDs[start..<end].reversed()) : []
-        guard !selected.isEmpty else { return MailPage(messages: [], total: total) }
-        let payloads = try await CurlTransport.fetchSummaries(folder: folder, uids: selected, credentials: credentials)
-        let summaries: [MailSummary] = selected.compactMap { uid -> MailSummary? in
-            guard let payload = payloads[uid] else { return nil }
-            return MIMEParser.summary(uid: uid, headerData: payload.header, flags: payload.flags)
+    private func makePage(uids: [UInt64], folder: String, page: Int, pageSize: Int, address: String) throws -> MailPage {
+        let selected = pageUIDs(uids, page: page, pageSize: pageSize)
+        let messages = selected.compactMap { summaryCache[SummaryCacheKey(address: address, folder: folder, uid: $0)] }
+        guard messages.count == selected.count else {
+            throw GmailReaderError.protocolError("部分邮件在刷新期间发生变化，请重新刷新")
         }
-        return MailPage(messages: summaries, total: total)
+        return MailPage(messages: messages, total: uids.count)
+    }
+
+    private func pageUIDs(_ uids: [UInt64], page: Int, pageSize: Int) -> [UInt64] {
+        let end = max(0, uids.count - max(0, page - 1) * pageSize)
+        let start = max(0, end - pageSize)
+        return start < end ? Array(uids[start..<end].reversed()) : []
+    }
+
+    private func cacheSummaries(_ payloads: [UInt64: CurlTransport.SummaryPayload], address: String, folder: String) {
+        for (uid, payload) in payloads {
+            summaryCache[SummaryCacheKey(address: address, folder: folder, uid: uid)] =
+                MIMEParser.summary(uid: uid, headerData: payload.header, flags: payload.flags)
+        }
+    }
+
+    private func cacheIsFresh(_ entry: ListCacheEntry, isSearch: Bool) -> Bool {
+        Date().timeIntervalSince(entry.fetchedAt) < (isSearch ? 120 : 25)
+    }
+
+    private func proxySignature(_ proxy: ProxySettings) -> String {
+        "\(proxy.enabled)|\(proxy.host)|\(proxy.port)"
+    }
+
+    private func cachedFlags(from summary: MailSummary) -> Set<String> {
+        var result: Set<String> = []
+        if summary.isRead { result.insert("\\Seen") }
+        if summary.isStarred { result.insert("\\Flagged") }
+        return result
+    }
+
+    private func updateCachedFlag(address: String, folder: String, uid: UInt64, flag: String, enabled: Bool) {
+        let key = SummaryCacheKey(address: address, folder: folder, uid: uid)
+        guard var summary = summaryCache[key] else { return }
+        if flag.caseInsensitiveCompare("\\Seen") == .orderedSame { summary.isRead = enabled }
+        if flag.caseInsensitiveCompare("\\Flagged") == .orderedSame { summary.isStarred = enabled }
+        summaryCache[key] = summary
+    }
+
+    private func trimCaches() {
+        if listCache.count > 32 {
+            let oldest = listCache.sorted { $0.value.fetchedAt < $1.value.fetchedAt }.prefix(listCache.count - 32)
+            for (key, _) in oldest { listCache.removeValue(forKey: key) }
+        }
+        if summaryCache.count > 5_000 {
+            let retained = Set(listCache.flatMap { item in
+                item.value.uids.map { SummaryCacheKey(address: item.key.address, folder: item.key.folder, uid: $0) }
+            }.suffix(5_000))
+            for key in Array(summaryCache.keys) where !retained.contains(key) { summaryCache.removeValue(forKey: key) }
+        }
+    }
+
+    private func invalidateListCaches(address: String, folder: String, criteria: String) {
+        for key in Array(listCache.keys)
+        where key.address == address && key.folder == folder && key.criteria == criteria && key.query.isEmpty {
+            listCache.removeValue(forKey: key)
+        }
+    }
+
+    private func prefetchFolders(credentials: GmailCredentials) {
+        guard folderCache[credentials.address] == nil, !folderPrefetching.contains(credentials.address) else { return }
+        folderPrefetching.insert(credentials.address)
+        Task {
+            _ = try? await folders(credentials: credentials)
+            folderPrefetching.remove(credentials.address)
+        }
     }
 
     private func flags(for uids: [UInt64], folder: String, credentials: GmailCredentials) async throws -> [UInt64: Set<String>] {

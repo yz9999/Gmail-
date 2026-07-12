@@ -1,0 +1,77 @@
+name: Build macOS App
+
+on:
+  push:
+    branches:
+      - macos-app
+    tags:
+      - "macos-v*"
+  pull_request:
+    branches:
+      - macos-app
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test macOS app
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Run tests
+        run: swift test -j 2
+
+      - name: Build app bundle
+        env:
+          SWIFT_JOBS: "2"
+        run: ./scripts/build_app.sh
+
+      - name: Package app
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            "dist/Gmail Reader.app" \
+            "build/artifacts/GmailReader-macOS.zip"
+          shasum -a 256 build/artifacts/GmailReader-macOS.zip > build/artifacts/SHA256SUMS.txt
+          codesign --verify --deep --strict "dist/Gmail Reader.app"
+          plutil -p "dist/Gmail Reader.app/Contents/Info.plist"
+
+      - name: Upload macOS app
+        uses: actions/upload-artifact@v4
+        with:
+          name: GmailReader-macOS-${{ github.sha }}
+          path: |
+            build/artifacts/GmailReader-macOS.zip
+            build/artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/macos-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/artifacts/GmailReader-macOS.zip \
+            build/artifacts/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Gmail Reader macOS ${GITHUB_REF_NAME#macos-v}" \
+            --generate-notes \
+            --notes "macOS 原生应用构建产物，使用临时签名。修复无代理直连 TLS，并优化邮件列表与搜索速度。"

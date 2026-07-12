@@ -14,15 +14,17 @@
 - 标记已读/未读、星标、全部标记为已读
 - 通过 Gmail SMTPS 写信
 - 切换账号时取消旧任务，并用请求代次检查避免串号
-- SOCKS5 hostname 代理，默认 `127.0.0.1:6153`
+- 默认直连 Gmail，也可选用 SOCKS5 hostname 代理
 - TLS 主机名和系统证书链验证
+- 列表搜索与 50 封摘要在同一条 TLS/IMAP 连接中完成
+- 短时 UID/摘要缓存，翻页和重复搜索无需再扫描整个邮箱
 
 ## 系统要求
 
 - macOS 12 或更高版本
 - Swift 5.9 或 Xcode 15
 - Gmail 已开启两步验证并生成 16 位应用专用密码
-- 当前网络环境下需运行本机 SOCKS5 代理（默认端口 `6153`）
+- 网络需能直接访问 Gmail；若当前网络不支持，可在设置中启用 SOCKS5 代理
 
 ## 构建
 
@@ -71,13 +73,15 @@ com.yz9999.GmailReader.password
 
 ## 网络实现
 
-普通 IMAP 与 SMTP 请求使用系统 `libcurl`：
+所有 IMAP 与 SMTP 请求均使用系统 `libcurl` 的 TLS 实现：
 
 - `imaps://imap.gmail.com:993`
 - `smtps://smtp.gmail.com:465`
 - `CURLPROXY_SOCKS5_HOSTNAME`
 
-邮件列表摘要使用一条原生 `UID FETCH` 批量读取 50 封邮件，避免逐封往返造成刷新缓慢。非 ASCII Gmail 搜索需要 IMAP UTF-8 literal；这两类请求使用 SOCKS5 隧道与 Secure Transport 建立经过系统信任评估的 TLS 会话。
+邮件列表使用一条持续的 TLS/IMAP 会话，在同一连接内完成认证、`UID SEARCH` 和批量 `UID FETCH`，一次读取当页 50 封摘要。与旧版相比，首页不再预先请求文件夹列表，也不再为搜索结果重新建立第二条 TLS 连接。
+
+中文等非 ASCII Gmail 搜索仍使用标准 IMAP UTF-8 literal，但底层已改为 `libcurl CONNECT_ONLY` 上的已验证 TLS 通道，不再使用已废弃的 Secure Transport socket 实现。关闭代理时会明确禁用环境代理，直接连接 Gmail；启用代理时使用 `CURLPROXY_SOCKS5_HOSTNAME`。
 
 中文搜索发送：
 

@@ -12,6 +12,10 @@ enum CurlTransport {
         let header: Data
         let flags: Set<String>
     }
+    struct PagePayload {
+        let allUIDs: [UInt64]
+        let summaries: [UInt64: SummaryPayload]
+    }
     private static let initialized: Bool = gr_curl_initialize() != 0
 
     static func imap(url: String, credentials: GmailCredentials, command: String? = nil, timeout: Int = 60) async throws -> Data {
@@ -26,7 +30,7 @@ enum CurlTransport {
             let result = gr_imap_request(urlPointer, username, password, proxyHost,
                                          credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0,
                                          request, Int(timeout))
-            return try consume(result)
+            return try consume(result, usingProxy: credentials.proxy.enabled)
         }.value
     }
 
@@ -44,7 +48,8 @@ enum CurlTransport {
             let proxyHost = credentials.proxy.enabled ? try duplicate(credentials.proxy.host) : nil
             defer { free(base); free(folder); free(uidPointer); free(sectionPointer); free(username); free(password); free(proxyHost) }
             return try consume(gr_imap_fetch_many(base, folder, uidPointer, sectionPointer, username, password,
-                                                  proxyHost, credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 90))
+                                                  proxyHost, credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 90),
+                               usingProxy: credentials.proxy.enabled)
         }.value
         return try decodeFrames(framed, expectedCount: uids.count)
     }
@@ -59,7 +64,8 @@ enum CurlTransport {
             let proxyHost = credentials.proxy.enabled ? try duplicate(credentials.proxy.host) : nil
             defer { free(host); free(folderPointer); free(queryPointer); free(username); free(password); free(proxyHost) }
             return try consume(gr_imap_search_utf8(host, 993, folderPointer, queryPointer, username, password,
-                                                   proxyHost, credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 60))
+                                                   proxyHost, credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 60),
+                               usingProxy: credentials.proxy.enabled)
         }.value
     }
 
@@ -75,9 +81,32 @@ enum CurlTransport {
             let proxyHost = credentials.proxy.enabled ? try duplicate(credentials.proxy.host) : nil
             defer { free(host); free(folderPointer); free(uidPointer); free(username); free(password); free(proxyHost) }
             return try consume(gr_imap_fetch_summaries(host, 993, folderPointer, uidPointer, username, password,
-                                                       proxyHost, credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 60))
+                                                       proxyHost, credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 60),
+                               usingProxy: credentials.proxy.enabled)
         }.value
         return try parseSummaryResponse(response, expectedUIDs: Set(uids))
+    }
+
+    static func fetchPage(folder: String, criteria: String, query: String?, page: Int, pageSize: Int,
+                          credentials: GmailCredentials) async throws -> PagePayload {
+        let response = try await Task.detached(priority: .userInitiated) {
+            let host = try duplicate("imap.gmail.com")
+            let folderPointer = try duplicate(folder)
+            let criteriaPointer = try duplicate(criteria)
+            let queryPointer = try query.map(duplicate)
+            let username = try duplicate(credentials.address)
+            let password = try duplicate(credentials.password)
+            let proxyHost = credentials.proxy.enabled ? try duplicate(credentials.proxy.host) : nil
+            defer {
+                free(host); free(folderPointer); free(criteriaPointer); free(queryPointer)
+                free(username); free(password); free(proxyHost)
+            }
+            let result = gr_imap_page(host, 993, folderPointer, criteriaPointer, queryPointer,
+                                      Int32(page), Int32(pageSize), username, password, proxyHost,
+                                      credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0, 60)
+            return try consume(result, usingProxy: credentials.proxy.enabled)
+        }.value
+        return try decodePage(response, page: page, pageSize: pageSize)
     }
 
     static func smtp(url: String, sender: String, recipients: [String], message: Data, credentials: GmailCredentials) async throws {
@@ -94,7 +123,8 @@ enum CurlTransport {
             let bytes = nsData.bytes.assumingMemoryBound(to: UInt8.self)
             return try consume(gr_smtp_send(urlPointer, username, password, proxyHost,
                                             credentials.proxy.enabled ? Int32(credentials.proxy.port) : 0,
-                                            senderPointer, recipientPointer, bytes, message.count, 60))
+                                            senderPointer, recipientPointer, bytes, message.count, 60),
+                               usingProxy: credentials.proxy.enabled)
         }.value
     }
 
@@ -103,16 +133,23 @@ enum CurlTransport {
         return pointer
     }
 
-    private static func consume(_ result: GRResult) throws -> Data {
+    private static func consume(_ result: GRResult, usingProxy: Bool) throws -> Data {
         defer { gr_result_free(result) }
         if let error = result.error {
             let raw = String(cString: error)
+            let lower = raw.lowercased()
             let message: String
-            if raw.localizedCaseInsensitiveContains("login") || raw.contains("AUTHENTICATIONFAILED") {
+            if lower.contains("login") || lower.contains("authentic") || raw.contains("AUTHENTICATIONFAILED") {
                 message = "Gmail 登录失败，请检查邮箱地址和应用专用密码"
-            } else if raw.localizedCaseInsensitiveContains("proxy") || raw.localizedCaseInsensitiveContains("connect") {
-                message = "无法通过 SOCKS5 代理连接 Gmail：\(raw)"
-            } else if raw.localizedCaseInsensitiveContains("message summaries") {
+            } else if lower.contains("ssl") || lower.contains("tls") || lower.contains("certificate") {
+                message = usingProxy
+                    ? "通过 SOCKS5 代理建立 Gmail TLS 连接失败：\(raw)"
+                    : "Gmail TLS 连接失败：\(raw)"
+            } else if lower.contains("proxy") || lower.contains("connect") || lower.contains("timed out") {
+                message = usingProxy
+                    ? "无法通过 SOCKS5 代理连接 Gmail：\(raw)"
+                    : "无法直接连接 Gmail：\(raw)"
+            } else if lower.contains("message summaries") {
                 message = "获取 Gmail 邮件摘要失败，请刷新重试"
             } else {
                 message = "Gmail 网络请求失败：\(raw)"
@@ -123,6 +160,42 @@ enum CurlTransport {
             throw GmailReaderError.network("Gmail 返回了无效数据")
         }
         return result.length == 0 ? Data() : Data(bytes: result.data!, count: result.length)
+    }
+
+    static func decodePage(_ data: Data, page: Int, pageSize: Int) throws -> PagePayload {
+        guard data.count >= 12, data.prefix(4) == Data("GRP1".utf8) else {
+            throw GmailReaderError.protocolError("Gmail 邮件列表响应无效")
+        }
+        var offset = 4
+        let countValue = readUInt64(data, offset: &offset)
+        guard countValue <= UInt64(Int.max), countValue <= 10_000_000 else {
+            throw GmailReaderError.protocolError("Gmail 邮件数量超出支持范围")
+        }
+        let count = Int(countValue)
+        guard count <= (data.count - offset) / 8 else {
+            throw GmailReaderError.protocolError("Gmail 邮件 UID 列表不完整")
+        }
+        var allUIDs: [UInt64] = []
+        allUIDs.reserveCapacity(count)
+        for _ in 0..<count { allUIDs.append(readUInt64(data, offset: &offset)) }
+
+        let end = max(0, count - max(0, page - 1) * pageSize)
+        let start = max(0, end - pageSize)
+        let selected = start < end ? Array(allUIDs[start..<end].reversed()) : []
+        let rawFetch = data.subdata(in: offset..<data.count)
+        let summaries = selected.isEmpty
+            ? [:]
+            : try parseSummaryResponse(rawFetch, expectedUIDs: Set(selected))
+        return PagePayload(allUIDs: allUIDs, summaries: summaries)
+    }
+
+    private static func readUInt64(_ data: Data, offset: inout Int) -> UInt64 {
+        var value: UInt64 = 0
+        for _ in 0..<8 {
+            value = (value << 8) | UInt64(data[offset])
+            offset += 1
+        }
+        return value
     }
 
     private static func decodeFrames(_ data: Data, expectedCount: Int) throws -> [Data] {

@@ -29,7 +29,7 @@ struct GmailReaderApp: App {
                 Button("写邮件") { mailbox.showingCompose = true }.keyboardShortcut("n", modifiers: [.command])
             }
             CommandMenu("邮件") {
-                Button("刷新") { mailbox.reload() }.keyboardShortcut("r", modifiers: [.command])
+                Button("刷新") { mailbox.refresh() }.keyboardShortcut("r", modifiers: [.command])
                 Button("将所有会话标记为已读") { mailbox.markAllRead() }
             }
         }
